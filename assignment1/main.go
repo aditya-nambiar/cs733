@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	s "strings"
 )
 
 const (
@@ -40,16 +41,28 @@ func serverMain() {
 
 // Handles incoming requests.
 func handleRequest(conn net.Conn) {
-	// Make a buffer to hold incoming data.
-	buf := make([]byte, 1024)
-	// Read the incoming connection into the buffer.
-	_, err := conn.Read(buf)
-	if err != nil {
-		fmt.Println("Error reading:", err.Error())
+
+	for {
+		// Make a buffer to hold incoming data.
+		buf := make([]byte, 1024)
+
+		// Read the incoming connection into the buffer.
+		_, err := conn.Read(buf)
+		if err != nil {
+			fmt.Println("Error reading:", err.Error())
+		}
+		rec_str := string(buf[:])
+
+		fmt.Println(rec_str)
+		if s.Contains(rec_str, "close") {
+			break
+		}
+
+		// Send a response back to person contacting us.
+		conn.Write([]byte("Received."))
+		conn.Write(buf)
 	}
-	// Send a response back to person contacting us.
-	conn.Write([]byte("Received."))
-	conn.Write(buf)
-	// Close the connection when you're done with it.
+
 	conn.Close()
+	// Close the connection when you're done with it.
 }
