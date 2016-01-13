@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/syndtr/goleveldb/leveldb"
 	"net"
 	"os"
 	s "strings"
@@ -26,6 +27,10 @@ func serverMain() {
 	}
 	// Close the listener when the application closes.
 	defer l.Close()
+	db, err := leveldb.OpenFile("/Users/aditya/Desktop", nil)
+
+	defer db.Close()
+
 	fmt.Println("Listening on " + HOST + ":" + PORT)
 	for {
 		// Listen for an incoming connection.
