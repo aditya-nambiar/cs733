@@ -1,73 +1,107 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"github.com/syndtr/goleveldb/leveldb"
 	"net"
-	"os"
-	s "strings"
+	"strconv"
+	"strings"
 )
 
-const (
-	HOST = "localhost"
-	TYPE = "tcp"
-	PORT = "8080"
-)
+const PORT = 8080
 
+func hello() string {
+	return "hi"
+}
 func main() {
 	serverMain()
 }
 
 func serverMain() {
-	// Listen for incoming connections.
-	l, err := net.Listen(TYPE, HOST+":"+PORT)
-	if err != nil {
-		fmt.Println("Error listening:", err.Error())
-		os.Exit(1)
+	server, err := net.Listen("tcp", ":"+strconv.Itoa(PORT))
+	if server == nil {
+		panic("couldn't start listening: " + err.Error())
 	}
-	// Close the listener when the application closes.
-	defer l.Close()
-	db, err := leveldb.OpenFile("/Users/aditya/Desktop", nil)
-
-	defer db.Close()
-
-	fmt.Println("Listening on " + HOST + ":" + PORT)
+	conns := clientConns(server)
 	for {
-		// Listen for an incoming connection.
-		conn, err := l.Accept()
-		if err != nil {
-			fmt.Println("Error accepting: ", err.Error())
-			os.Exit(1)
-		}
-		// Handle connections in a new goroutine.
-		go handleRequest(conn)
+		go handleConn(<-conns)
 	}
 }
 
-// Handles incoming requests.
-func handleRequest(conn net.Conn) {
-
-	for {
-		// Make a buffer to hold incoming data.
-		buf := make([]byte, 1024)
-
-		// Read the incoming connection into the buffer.
-		_, err := conn.Read(buf)
-		if err != nil {
-			fmt.Println("Error reading:", err.Error())
+func clientConns(listener net.Listener) chan net.Conn {
+	ch := make(chan net.Conn)
+	i := 0
+	go func() {
+		for {
+			client, err := listener.Accept()
+			if client == nil {
+				fmt.Printf("couldn't accept: " + err.Error())
+				continue
+			}
+			i++
+			fmt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
+			ch <- client
 		}
-		rec_str := string(buf[:])
+	}()
+	return ch
+}
 
-		fmt.Println(rec_str)
-		if s.Contains(rec_str, "close") {
+func handleConn(client net.Conn) {
+	b := bufio.NewReader(client)
+	rec_str := ""
+	for {
+
+		var command_complete bool = false
+		//Taking a command -> write/ delete/ cas/ read
+		line, err := b.ReadBytes('\r')
+		line1, err1 := b.ReadBytes('\n')
+
+		if err != nil || err1 != nil { // EOF, or worse
 			break
 		}
+		rec_str = rec_str + string(line[:len(line)-1])
 
-		// Send a response back to person contacting us.
-		conn.Write([]byte("Received."))
-		conn.Write(buf)
+		if len(line1) != 1 { // something b/w \r & \n hence part of input
+			rec_str = rec_str + string(line1[:len(line1)-1])
+			continue
+		} else {
+			command_complete = true
+		}
+
+		if command_complete {
+			//Identify command
+
+			parts := strings.Split(rec_str, " ")
+
+			switch {
+			case parts[0] == "write":
+				fmt.Println("Writing")
+				fmt.Println(parts[1])
+				fmt.Println("Numbytes")
+				fmt.Println(parts[2])
+
+				if len(parts) == 3 {
+
+				} else { //expiry time exists
+
+				}
+
+			case parts[0] == "delete":
+				fmt.Println("Delete")
+				fmt.Println(parts[1])
+
+			case parts[0] == "cas":
+				fmt.Println("Cas")
+				fmt.Println(parts[1])
+
+			case parts[0] == "read":
+				fmt.Println("Read")
+				fmt.Println(parts[1])
+
+			}
+
+		}
+		//splits = strings.Split(rec_str, " ")
+
 	}
-
-	conn.Close()
-	// Close the connection when you're done with it.
 }
