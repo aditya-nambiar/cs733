@@ -18,9 +18,9 @@ func TestHome(t *testing.T) {
 
 	conn, _ := net.Dial("tcp", "localhost:8080")
 	//checkError(err)
-	_, _ = conn.Write([]byte("write HEAD\rdsfsdfds\n"))
+	_, _ = conn.Write([]byte("write filename 23\r\n"))
 
-	_, _ = conn.Write([]byte(" 13 234\r\n"))
+	//	_, _ = conn.Write([]byte(" 13 234\r\n"))
 
 	reader := bufio.NewReader(conn)
 	for {
