@@ -59,9 +59,8 @@ func readNumBytes(num int, b *bufio.Reader, all_bytes []byte) {
 	for i := 0; i < num; i++ {
 		all_bytes[i], _ = b.ReadByte()
 	}
-	b.ReadByte()
-	b.ReadByte()
-	fmt.Println("Returning")
+	_, _ = b.ReadByte()
+	_, _ = b.ReadByte()
 }
 
 func handleConn(client net.Conn, db *leveldb.DB) {
@@ -87,6 +86,8 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 
 		}
 
+		fmt.Println("Command Complete := " + rec_str)
+
 		if command_complete {
 			//Identify command
 
@@ -99,7 +100,7 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				version, err := db.Get([]byte("Version:"+parts[1]), nil)
 				ver := 100000
 				if err == nil { //update
-					ver, _ := strconv.Atoi(string(version))
+					ver, _ = strconv.Atoi(string(version))
 					ver = ver + 1
 				}
 
@@ -110,7 +111,12 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 					_ = db.Put([]byte("ExpTime:"+parts[1]), []byte(parts[3]), nil)
 
 				}
-				num, _ := strconv.Atoi(parts[2])
+				num, err := strconv.Atoi(parts[2])
+				if err != nil {
+					client.Write([]byte("ERR_CMD_ERR\r\n"))
+					break
+				}
+
 				all_bytes := make([]byte, num)
 				readNumBytes(num, b, all_bytes[0:])
 				sec := time.Now().Second()
@@ -122,7 +128,7 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				break
 
 			case parts[0] == "delete":
-				version, err := db.Get([]byte("Version:"+parts[1]), nil)
+				_, err := db.Get([]byte("Version:"+parts[1]), nil)
 				if err != nil {
 					client.Write([]byte("ERR_FILE_NOT_FOUND\r\n"))
 					break
@@ -137,29 +143,65 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				break
 
 			case parts[0] == "cas":
-				fmt.Println("Cas")
-				fmt.Println(parts[1])
-				break
-
-			case parts[0] == "read":
-				data, errd := db.Get([]byte("Name:"+parts[1]), nil)
-				numbytes, err := db.Get([]byte("NumBytes:"+parts[1]), nil)
 				version, err := db.Get([]byte("Version:"+parts[1]), nil)
-				timestamp, err := db.Get([]byte("TimeStamp:"+parts[1]), nil)
+				ver, _ := strconv.Atoi(string(version))
+				timestamp, _ := db.Get([]byte("TimeStamp:"+parts[1]), nil)
 				exp, err := db.Get([]byte("ExpTime:"+parts[1]), nil)
 				exp_time, _ := strconv.Atoi(string(exp))
 				time_sec, _ := strconv.Atoi(string(timestamp))
 				sec := time.Now().Second()
-				if errd != nil || sec > time_sec+exp_time {
+				if err != nil || (exp_time != 0 && sec > time_sec+exp_time) {
 					client.Write([]byte("ERR_FILE_NOT_FOUND\r\n"))
 					break
 				}
-				client.Write([]byte("CONTENTS " + strconv.Itoa(version) + " " + string(numbytes) + " " + string(exp) + "\r\n"))
+				if string(version) != parts[2] {
+					client.Write([]byte("ERR_VERSION\r\n"))
+					break
+				}
+
+				if len(parts) == 4 {
+					_ = db.Put([]byte("ExpTime:"+parts[1]), []byte("0"), nil)
+
+				} else { //expiry time exists
+					_ = db.Put([]byte("ExpTime:"+parts[1]), []byte(parts[4]), nil)
+
+				}
+				num, err := strconv.Atoi(parts[3])
+				if err != nil {
+					client.Write([]byte("ERR_CMD_ERR\r\n"))
+					break
+				}
+
+				all_bytes := make([]byte, num)
+				readNumBytes(num, b, all_bytes[0:])
+				_ = db.Put([]byte("Name:"+parts[1]), all_bytes, nil)
+				_ = db.Put([]byte("NumBytes:"+parts[1]), []byte(parts[2]), nil)
+				_ = db.Put([]byte("TimeStamp:"+parts[1]), []byte(strconv.Itoa(sec)), nil)
+				ver = ver + 1
+				_ = db.Put([]byte("Version:"+parts[1]), []byte(strconv.Itoa(ver)), nil)
+				client.Write([]byte("OK " + strconv.Itoa(ver) + "\r\n"))
+
+				break
+
+			case parts[0] == "read":
+				data, err := db.Get([]byte("Name:"+parts[1]), nil)
+				numbytes, _ := db.Get([]byte("NumBytes:"+parts[1]), nil)
+				version, _ := db.Get([]byte("Version:"+parts[1]), nil)
+				timestamp, _ := db.Get([]byte("TimeStamp:"+parts[1]), nil)
+				exp, err := db.Get([]byte("ExpTime:"+parts[1]), nil)
+				exp_time, _ := strconv.Atoi(string(exp))
+				time_sec, _ := strconv.Atoi(string(timestamp))
+				sec := time.Now().Second()
+				if err != nil || (exp_time != 0 && sec > time_sec+exp_time) {
+					client.Write([]byte("ERR_FILE_NOT_FOUND\r\n"))
+					break
+				}
+				client.Write([]byte("CONTENTS " + string(version) + " " + string(numbytes) + " " + string(exp) + "\r\n"))
 				client.Write(data)
 				client.Write([]byte("\r\n"))
 				break
 			default:
-				fmt.Println("Error")
+				client.Write([]byte("ERR_CMD_ERR\r\n"))
 				break
 
 			}
