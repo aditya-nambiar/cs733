@@ -51,7 +51,7 @@ func clientConns(listener net.Listener) chan net.Conn {
 				continue
 			}
 			i++
-			fmt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
+			//fmt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
 			ch <- client
 		}
 	}()
@@ -147,21 +147,26 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				}
 
 				mutex.Lock()
+
 				_ = db.Delete([]byte("Name:"+parts[1]), nil)
 				_ = db.Delete([]byte("Version:"+parts[1]), nil)
 				_ = db.Delete([]byte("TimeStamp:"+parts[1]), nil)
 				_ = db.Delete([]byte("ExpTime:"+parts[1]), nil)
 				_ = db.Delete([]byte("NumBytes:"+parts[1]), nil)
+
 				mutex.Unlock()
 				client.Write([]byte("OK\r\n"))
 
 				break
 
 			case parts[0] == "cas":
+				mutex.Lock()
 				version, err := db.Get([]byte("Version:"+parts[1]), nil)
 				ver, _ := strconv.Atoi(string(version))
 				timestamp, _ := db.Get([]byte("TimeStamp:"+parts[1]), nil)
 				exp, err := db.Get([]byte("ExpTime:"+parts[1]), nil)
+				mutex.Unlock()
+
 				exp_time, _ := strconv.Atoi(string(exp))
 				time_sec, _ := strconv.Atoi(string(timestamp))
 				sec := time.Now().Second()
@@ -184,6 +189,7 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				readNumBytes(num, b, all_bytes[0:])
 
 				mutex.Lock()
+
 				if len(parts) == 4 {
 					_ = db.Put([]byte("ExpTime:"+parts[1]), []byte("0"), nil)
 
@@ -196,6 +202,7 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				_ = db.Put([]byte("TimeStamp:"+parts[1]), []byte(strconv.Itoa(sec)), nil)
 				ver = ver + 1
 				_ = db.Put([]byte("Version:"+parts[1]), []byte(strconv.Itoa(ver)), nil)
+
 				mutex.Unlock()
 
 				client.Write([]byte("OK " + strconv.Itoa(ver) + "\r\n"))
@@ -204,15 +211,18 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 
 			case parts[0] == "read":
 				mutex.Lock()
+
 				data, err := db.Get([]byte("Name:"+parts[1]), nil)
 				numbytes, _ := db.Get([]byte("NumBytes:"+parts[1]), nil)
 				version, _ := db.Get([]byte("Version:"+parts[1]), nil)
 				timestamp, _ := db.Get([]byte("TimeStamp:"+parts[1]), nil)
 				exp, err := db.Get([]byte("ExpTime:"+parts[1]), nil)
+
 				mutex.Unlock()
 				exp_time, _ := strconv.Atoi(string(exp))
 				time_sec, _ := strconv.Atoi(string(timestamp))
 				sec := time.Now().Second()
+				//fmt.Println(strconv.Itoa(exp_time) + " + " + strconv.Itoa(time_sec) + " -> " + strconv.Itoa(sec))
 
 				if err != nil || (exp_time != 0 && sec > time_sec+exp_time) {
 					client.Write([]byte("ERR_FILE_NOT_FOUND\r\n"))

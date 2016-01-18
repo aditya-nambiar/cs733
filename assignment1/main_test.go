@@ -4,7 +4,7 @@ import (
 	"bufio"
 	//"fmt"
 	"net"
-	"strconv"
+	//"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +13,8 @@ import (
 func TestWrite(t *testing.T) {
 
 	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
 	//checkError(err)
 	reader := bufio.NewReader(conn)
 	buf := make([]byte, 1024)
@@ -26,7 +28,7 @@ func TestWrite(t *testing.T) {
 			t.Error("Error in receiving from server")
 			break
 		}
-		if string(buf[:num]) != "OK "+strconv.Itoa(i)+"\r\n" { //Version number starts from 0 to 9999
+		if string(buf[:2]) != "OK" { //Version number starts from 0 to 9999
 			t.Error(string(buf[:num]))
 		}
 	}
@@ -40,6 +42,8 @@ func TestWrite(t *testing.T) {
 
 func TestWriteExpiry(t *testing.T) {
 	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
 	//checkError(err)
 	reader := bufio.NewReader(conn)
 
@@ -67,10 +71,13 @@ func TestWriteExpiry(t *testing.T) {
 	}
 
 	_, _ = conn.Write([]byte("delete file123@#!\r\n"))
+
 }
 
 func TestPartialWrite(t *testing.T) {
 	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
 	//checkError(err)
 	reader := bufio.NewReader(conn)
 	buf := make([]byte, 1024)
@@ -92,8 +99,11 @@ func TestPartialWrite(t *testing.T) {
 
 }
 
-func make_client(t *testing.T) {
+func make_client(t *testing.T, wg *sync.WaitGroup) {
+	defer (*wg).Done()
 	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
 	//checkError(err)
 	reader := bufio.NewReader(conn)
 	_, _ = conn.Write([]byte("write rand_file! 23\r\n"))
@@ -129,30 +139,72 @@ func make_client(t *testing.T) {
 	}
 
 }
-func TestParallelSessions(t *testing.T) {
+
+func TestMultipleClients(t *testing.T) {
 	var wg sync.WaitGroup
+	wg.Add(10)
 
 	for i := 0; i < 10; i++ {
-		go make_client(t)
+
+		go make_client(t, &wg)
+
 	}
 
 	wg.Wait()
-	buf := make([]byte, 1024)
 	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
+	buf := make([]byte, 1024)
 
 	_, _ = conn.Write([]byte("delete rand_file!\r\n"))
 	num, err := conn.Read(buf)
 	if string(buf[:num]) != "OK\r\n" || err != nil {
 		t.Error(string(buf[:num]))
 	}
+
+	conn.Close()
+
 }
 
 func TestCASErrors(t *testing.T) {
+	buf := make([]byte, 1024)
+	conn, _ := net.Dial("tcp", "localhost:8080")
+	_, _ = conn.Write([]byte("write casfile! 23\r\n"))
+	_, _ = conn.Write([]byte("234329giwe039he2~@#4%!@\r\n"))
+	_, _ = conn.Read(buf)
 
+	for i := 0; i < 10; i++ {
+		_, _ = conn.Write([]byte("cas rand_file! 12 1\r\n"))
+		_, _ = conn.Write([]byte("x\r\n"))
+	}
+
+}
+
+func TestBigFile(t *testing.T) {
+
+	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
+	_, _ = conn.Write([]byte("write bigfile! 1000000\r\n"))
+	for i := 0; i < 100000; i++ {
+		_, _ = conn.Write([]byte("2222222222"))
+	}
+	buf := make([]byte, 1024)
+
+	_, _ = conn.Write([]byte("\r\n"))
+
+	num, err := conn.Read(buf)
+	if string(buf[:2]) != "OK" || err != nil {
+		t.Error(string(buf[:num]))
+	}
+
+	_, _ = conn.Write([]byte("delete bigfile!\r\n"))
 }
 
 func TestExcessBytesInWrite(t *testing.T) {
 	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
 	//checkError(err)
 	reader := bufio.NewReader(conn)
 	_, _ = conn.Write([]byte("write files## 5\r\n"))
