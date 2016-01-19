@@ -19,9 +19,13 @@ func main() {
 	serverMain()
 }
 
-var mutex = &sync.Mutex{}
+//var mutex = &sync.Mutex{}
+var mutex = new(sync.Mutex)
+
+var mutexmap map[string]*sync.Mutex
 
 func serverMain() {
+	mutexmap = make(map[string]*sync.Mutex)
 	server, err := net.Listen("tcp", ":"+strconv.Itoa(PORT))
 	if server == nil {
 		panic("couldn't start listening: " + err.Error())
@@ -118,8 +122,11 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				sec := time.Now().Second()
 
 				// Critical
-
-				mutex.Lock()
+				_, ok := mutexmap[parts[1]]
+				if !ok {
+					mutexmap[parts[1]] = new(sync.Mutex)
+				}
+				mutexmap[parts[1]].Lock()
 				if len(parts) == 3 {
 					_ = db.Put([]byte("ExpTime:"+parts[1]), []byte("0"), nil)
 
@@ -131,22 +138,25 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				_ = db.Put([]byte("NumBytes:"+parts[1]), []byte(parts[2]), nil)
 				_ = db.Put([]byte("TimeStamp:"+parts[1]), []byte(strconv.Itoa(sec)), nil)
 				_ = db.Put([]byte("Version:"+parts[1]), []byte(strconv.Itoa(ver)), nil)
-				mutex.Unlock()
+				mutexmap[parts[1]].Unlock()
 
 				client.Write([]byte("OK " + strconv.Itoa(ver) + "\r\n"))
 				break
 
 			case parts[0] == "delete":
-
-				mutex.Lock()
+				_, ok := mutexmap[parts[1]]
+				if !ok {
+					mutexmap[parts[1]] = new(sync.Mutex)
+				}
+				mutexmap[parts[1]].Lock()
 				_, err := db.Get([]byte("Version:"+parts[1]), nil)
-				mutex.Unlock()
+				mutexmap[parts[1]].Unlock()
 				if err != nil {
 					client.Write([]byte("ERR_FILE_NOT_FOUND\r\n"))
 					break
 				}
 
-				mutex.Lock()
+				mutexmap[parts[1]].Lock()
 
 				_ = db.Delete([]byte("Name:"+parts[1]), nil)
 				_ = db.Delete([]byte("Version:"+parts[1]), nil)
@@ -154,18 +164,22 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				_ = db.Delete([]byte("ExpTime:"+parts[1]), nil)
 				_ = db.Delete([]byte("NumBytes:"+parts[1]), nil)
 
-				mutex.Unlock()
+				mutexmap[parts[1]].Unlock()
 				client.Write([]byte("OK\r\n"))
 
 				break
 
 			case parts[0] == "cas":
-				mutex.Lock()
+				_, ok := mutexmap[parts[1]]
+				if !ok {
+					mutexmap[parts[1]] = new(sync.Mutex)
+				}
+				mutexmap[parts[1]].Lock()
 				version, err := db.Get([]byte("Version:"+parts[1]), nil)
 				ver, _ := strconv.Atoi(string(version))
 				timestamp, _ := db.Get([]byte("TimeStamp:"+parts[1]), nil)
 				exp, err := db.Get([]byte("ExpTime:"+parts[1]), nil)
-				mutex.Unlock()
+				mutexmap[parts[1]].Unlock()
 
 				exp_time, _ := strconv.Atoi(string(exp))
 				time_sec, _ := strconv.Atoi(string(timestamp))
@@ -188,7 +202,7 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				all_bytes := make([]byte, num)
 				readNumBytes(num, b, all_bytes[0:])
 
-				mutex.Lock()
+				mutexmap[parts[1]].Lock()
 
 				if len(parts) == 4 {
 					_ = db.Put([]byte("ExpTime:"+parts[1]), []byte("0"), nil)
@@ -203,14 +217,18 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				ver = ver + 1
 				_ = db.Put([]byte("Version:"+parts[1]), []byte(strconv.Itoa(ver)), nil)
 
-				mutex.Unlock()
+				mutexmap[parts[1]].Unlock()
 
 				client.Write([]byte("OK " + strconv.Itoa(ver) + "\r\n"))
 
 				break
 
 			case parts[0] == "read":
-				mutex.Lock()
+				_, ok := mutexmap[parts[1]]
+				if !ok {
+					mutexmap[parts[1]] = new(sync.Mutex)
+				}
+				mutexmap[parts[1]].Lock()
 
 				data, err := db.Get([]byte("Name:"+parts[1]), nil)
 				numbytes, _ := db.Get([]byte("NumBytes:"+parts[1]), nil)
@@ -218,7 +236,7 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				timestamp, _ := db.Get([]byte("TimeStamp:"+parts[1]), nil)
 				exp, err := db.Get([]byte("ExpTime:"+parts[1]), nil)
 
-				mutex.Unlock()
+				mutexmap[parts[1]].Unlock()
 				exp_time, _ := strconv.Atoi(string(exp))
 				time_sec, _ := strconv.Atoi(string(timestamp))
 				sec := time.Now().Second()
