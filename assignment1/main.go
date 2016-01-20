@@ -189,7 +189,7 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 					break
 				}
 				if string(version) != parts[2] {
-					client.Write([]byte("ERR_VERSION\r\n"))
+					client.Write([]byte("ERR_VERSION " + string(version) + "\r\n"))
 					break
 				}
 

@@ -11,13 +11,17 @@ import (
 	"time"
 )
 
-func readNumBytes(num int, b *bufio.Reader, all_bytes []byte) {
-	for i := 0; i < num; i++ {
-		all_bytes[i], _ = b.ReadByte()
-	}
-	_, _ = b.ReadByte()
-	_, _ = b.ReadByte()
+func init() {
+	go serverMain()
 }
+
+// func readNumBytes(num int, b *bufio.Reader, all_bytes []byte) {
+// 	for i := 0; i < num; i++ {
+// 		all_bytes[i], _ = b.ReadByte()
+// 	}
+// 	_, _ = b.ReadByte()
+// 	_, _ = b.ReadByte()
+// }
 
 func TestWrite(t *testing.T) {
 
