@@ -13,6 +13,7 @@ import (
 
 func init() {
 	go serverMain()
+	time.Sleep(1 * time.Second)
 }
 
 // func readNumBytes(num int, b *bufio.Reader, all_bytes []byte) {
@@ -60,29 +61,15 @@ func TestWriteExpiry(t *testing.T) {
 	//checkError(err)
 	reader := bufio.NewReader(conn)
 
-	_, _ = conn.Write([]byte("write file123@#! 23 1\r\n"))
+	_, _ = conn.Write([]byte("write file123@#! 23 2\r\n"))
 	_, _ = conn.Write([]byte("234329giwe039he2~@#4%!@\r\n"))
 	line, _ := reader.ReadBytes('\r')
 	line, _ = reader.ReadBytes('\n')
-
-	time.Sleep(200 * time.Millisecond)
-	_, _ = conn.Write([]byte("read file123@#!\r\n"))
-	line, _ = reader.ReadBytes('\r')
-	_, _ = reader.ReadBytes('\n')
-
-	if string(line[:8]) != "CONTENTS" {
-		t.Error(string(line))
-	}
-	readresp := strings.Split(string(line), " ")
-	n, _ := strconv.Atoi(readresp[2])
-
-	all_bytes := make([]byte, n)
-	readNumBytes(n, reader, all_bytes)
-
 	time.Sleep(3000 * time.Millisecond)
 	_, _ = conn.Write([]byte("read file123@#!\r\n"))
+	time.Sleep(500 * time.Millisecond)
+
 	line, _ = reader.ReadBytes('\r')
-	_, _ = reader.ReadBytes('\n')
 	if string(line)+"\n" != "ERR_FILE_NOT_FOUND\r\n" {
 		t.Error(string(line) + "\r\n")
 	}
@@ -150,15 +137,24 @@ func make_client(t *testing.T, wg *sync.WaitGroup, x int) {
 	all_bytes := make([]byte, n)
 	readNumBytes(n, reader, all_bytes)
 
-	_, _ = conn.Write([]byte("cas " + strconv.Itoa(x) + " 12 23\r\n"))
-	_, _ = conn.Write([]byte("234329giwe039he2~@#4%!@\r\n"))
-	line, _ = reader.ReadBytes('\r')
-	_, _ = reader.ReadBytes('\n')
+	var data string
+	if x < 10 {
+		data = "00" + strconv.Itoa(x)
+	} else if x < 100 {
+		data = "0" + strconv.Itoa(x)
+	} else {
+		data = strconv.Itoa(x)
+	}
+	ver := 0
+	for i := 0; i < 20; i++ {
+		_, _ = conn.Write([]byte("cas casfile " + strconv.Itoa(ver) + " 3\r\n"))
+		_, _ = conn.Write([]byte(data + "\r\n"))
 
-	str_temp = string(line)
+		line, _ = reader.ReadBytes('\r')
+		_, _ = reader.ReadBytes('\n')
 
-	if len(str_temp) < 2 || !(str_temp[:2] == "OK" || str_temp[:11] == "ERR_VERSION") {
-		t.Error(str_temp)
+		resp := strings.Split(string(line), " ")
+		ver, _ = strconv.Atoi(resp[1])
 	}
 
 }
@@ -166,6 +162,16 @@ func make_client(t *testing.T, wg *sync.WaitGroup, x int) {
 func TestMultipleClients(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1000)
+	conn, _ := net.Dial("tcp", "localhost:8080")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+
+	_, _ = conn.Write([]byte("write casfile 3\r\n"))
+	_, _ = conn.Write([]byte("###\r\n"))
+
+	_, _ = reader.ReadBytes('\r')
+	_, _ = reader.ReadBytes('\n')
 
 	for i := 0; i < 1000; i++ {
 
@@ -175,18 +181,32 @@ func TestMultipleClients(t *testing.T) {
 	}
 
 	wg.Wait()
-	conn, _ := net.Dial("tcp", "localhost:8080")
-	defer conn.Close()
 
-	//buf := make([]byte, 1024)
+	_, _ = conn.Write([]byte("read casfile\r\n"))
 
-	// _, _ = conn.Write([]byte("delete rand_file!\r\n"))
-	// num, err := conn.Read(buf)
-	// if string(buf[:num]) != "OK\r\n" || err != nil {
-	// 	t.Error(string(buf[:num]))
-	// }
+	line, _ := reader.ReadBytes('\r')
+	_, _ = reader.ReadBytes('\n')
 
-	conn.Close()
+	if string(line[:8]) != "CONTENTS" {
+		t.Error("Read failed\r\n")
+	}
+	line, _ = reader.ReadBytes('\r')
+	_, _ = reader.ReadBytes('\n')
+
+	var data int
+	data, _ = strconv.Atoi(string(line[:2]))
+
+	if data < 0 || data > 999 {
+		t.Error("Wrong data returned\r\n")
+	}
+
+	buf := make([]byte, 1024)
+
+	_, _ = conn.Write([]byte("delete casfile\r\n"))
+	num, err := conn.Read(buf)
+	if string(buf[:num]) != "OK\r\n" || err != nil {
+		t.Error(string(buf[:num]))
+	}
 
 }
 
@@ -212,7 +232,7 @@ func TestCASErrors(t *testing.T) {
 
 	}
 
-	_, _ = conn.Write([]byte("delete casfile!\r\n"))
+	_, _ = conn.Write([]byte("delete casfile\r\n"))
 
 }
 
@@ -242,7 +262,7 @@ func TestExcessBytesInWrite(t *testing.T) {
 
 	//checkError(err)
 	reader := bufio.NewReader(conn)
-	_, _ = conn.Write([]byte("write files## 5\r\n"))
+	_, _ = conn.Write([]byte("write files!@ 5\r\n"))
 	_, _ = conn.Write([]byte("1234556899\r\n"))
 	line, _ := reader.ReadBytes('\r')
 	_, _ = reader.ReadBytes('\n')
@@ -258,7 +278,7 @@ func TestExcessBytesInWrite(t *testing.T) {
 		t.Error(string(line) + "\n")
 	}
 
-	_, _ = conn.Write([]byte("read files##\r\n"))
+	_, _ = conn.Write([]byte("read files!@\r\n"))
 	line, _ = reader.ReadBytes('\r')
 	_, _ = reader.ReadBytes('\n')
 	if string(line)+"\n" != "CONTENTS 0 5 0\r\n" {
@@ -271,6 +291,6 @@ func TestExcessBytesInWrite(t *testing.T) {
 		t.Error(string(line) + "\r\n")
 	}
 
-	_, _ = conn.Write([]byte("delete files##\r\n"))
+	_, _ = conn.Write([]byte("delete files!@\r\n"))
 
 }

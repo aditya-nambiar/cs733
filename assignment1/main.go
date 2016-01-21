@@ -22,6 +22,7 @@ func main() {
 //var mutex = &sync.Mutex{}
 var mutex = new(sync.Mutex)
 
+// mutex for each file
 var mutexmap map[string]*sync.Mutex
 
 func serverMain() {
@@ -38,10 +39,6 @@ func serverMain() {
 	for {
 		go handleConn(<-conns, db)
 	}
-}
-
-func action_db() {
-
 }
 
 func clientConns(listener net.Listener) chan net.Conn {
@@ -62,12 +59,29 @@ func clientConns(listener net.Listener) chan net.Conn {
 	return ch
 }
 
+func reading(r chan int, all_bytes []byte) {
+
+}
+
+// to read a given number of bytes and \r\n
 func readNumBytes(num int, b *bufio.Reader, all_bytes []byte) {
-	for i := 0; i < num; i++ {
-		all_bytes[i], _ = b.ReadByte()
+
+	c1 := make(chan string, 1)
+	go func() {
+		for i := 0; i < num; i++ {
+			all_bytes[i], _ = b.ReadByte()
+		}
+		_, _ = b.ReadByte()
+		_, _ = b.ReadByte()
+		c1 <- "result 1"
+	}()
+
+	select {
+	case <-c1:
+	case <-time.After(2 * time.Second):
+		return
 	}
-	_, _ = b.ReadByte()
-	_, _ = b.ReadByte()
+
 }
 
 func handleConn(client net.Conn, db *leveldb.DB) {
@@ -92,8 +106,6 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 			command_complete = true
 
 		}
-
-		//fmt.Println("Command Complete := " + rec_str)
 
 		if command_complete {
 			//Identify command
@@ -184,6 +196,10 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 				exp_time, _ := strconv.Atoi(string(exp))
 				time_sec, _ := strconv.Atoi(string(timestamp))
 				sec := time.Now().Second()
+				num, err := strconv.Atoi(parts[3])
+
+				all_bytes := make([]byte, num)
+				readNumBytes(num, b, all_bytes[0:])
 				if err != nil || (exp_time != 0 && sec > time_sec+exp_time) {
 					client.Write([]byte("ERR_FILE_NOT_FOUND\r\n"))
 					break
@@ -193,14 +209,10 @@ func handleConn(client net.Conn, db *leveldb.DB) {
 					break
 				}
 
-				num, err := strconv.Atoi(parts[3])
 				if err != nil {
 					client.Write([]byte("ERR_CMD_ERR\r\n"))
 					break
 				}
-
-				all_bytes := make([]byte, num)
-				readNumBytes(num, b, all_bytes[0:])
 
 				mutexmap[parts[1]].Lock()
 
