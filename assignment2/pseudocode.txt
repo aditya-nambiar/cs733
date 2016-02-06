@@ -1,40 +1,47 @@
-
-
+----------------
 State : Follower
-Persisten data
-currentTerm
-votedFor
-log[]
-
-Volatile data
-commitIndex
-
+----------------
 
 on VoteReq(from, term, candidateId, lastLogIndex, lastLogTerm)
 	if sm.currentTerm <= msg.term &&
-		sm.votedFor == nil or msg.candidateId,
-			if candidate log is at least as up-to-date as receiver's log,
+		sm.votedFor == nil or sm.votedFor  == msg.candidateId,
+			if candidate log is at least as up-to-date as receiver's log, 
 				sm.currentTerm = msg.term
 				sm.votedFor = msg.candidateId
 				action = Send(msg.from, VoteResp(sm.term, voteGranted =no))
 	Otherwise, reject vote:
 		action = Send(msg.from, VoteResp(sm.term, voteGranted =no))
+	Alarm(sm.ElectionTimeout)
 
 
 on Append(data:[]byte)
-		Send(votedFor, Append(data))
+		Send(leaderId, Append(data))
 
 on Timeout
-		Election timeout -> convert to candidate
-		Send(itself, Alarm(0))
+		change State = Follower
+		Alarm(0)
 
 on AppendEntriesReq(term, leaderId, prevLogIndex, prevLogTerm, entries[], leaderCommit):
-		if sm.term >= msg.term 
-			check if log contains an entry at prevLogIndex whose term matches prevLogTerm
-				if existing entry conflicts with a new one delete entry and all that follow it
-				append new entries not already in the log
-				if leaderCommit > commitIndex
-					commitIndex = min(leaderCommit,index of last new entry)
+		if msg.term > sm.currentTerm
+			sm.currentTerm = msg.term 
+			sm.leaderId = msg.leaderId
+
+		if  sm.currentTerm > msg.term
+   			 action = Send(msg.leaderId, AppendEntriesResp(sm.currentTerm, null , success =no))
+		 else if  (sm.log[msg.prevLogIndex].term != msg.prevLogTerm) 
+   	 		action = Send(msg.leaderId, AppendEntriesResp(sm.currentTerm, null, success =no))
+		else
+			 if  sm.lastLogIndex > msg.prevLogIndex
+		   		 sm.lastLogIndex = msg.prevLogIndex
+		   	 LogStore(sm.lastLogIndex + 1, entries)    
+		   	 sm.lastLogIndex += entries.size()
+		   	 sm.lastLogTerm = sm.CurrentTerm
+		   	 action = Send(msg.leaderID, AppendEntriesResp(sm.currentTerm, sm.lastLogIndex, success =yes))
+	   		 if sm.commitIndex < msg.leaderCommit   
+		   		 commitIndex = min(leaderCommit, sm.lastLogIndex)
+		   		 Commit(index, data, err)
+			Alarm(sm.ElectionTimeout)
+
 
 on AppendEntriesResp(term, success):
 	if msg.term > sm.currentTerm
@@ -46,102 +53,143 @@ on VoteResp(term , voteGranted):
 		sm.currentTerm = msg.term 
 
 
-
-
+-----------------
 State : Candidate
+-----------------
 
-Persistent state
-1.currentTerm
-2.votedFor
-3.log[]
+on VoteReq(from, term, candidateId, lastLogIndex, lastLogTerm) 
+	if sm.term < msg.term
+	   	 State = Follower
+	   	 sm.currentTerm = msg.term
+	   	 sm.votedFor = msg.Id
+	   	 action = Send(msg.from, VoteResp(sm.term, voteGranted =yes))
+	   	 Alarm(sm.ElectionTimeout)
+	 else    
+	   	 action = Send(msg.from, VoteResp(sm.term, voteGranted =no))
+	    
 
-Volatile State
-1.commitIndex
+on Append(data:[]byte)
+	//Drop
+	Send fail
 
-
-1. on VoteReq(from, term, candidateId, lastLogIndex, lastLogTerm) 
-
-		Send(msg.from, VoteResp(sm.term, voteGranted =no))
-
-2. on Append(data:[]byte)
-	//Doubt
-
-3. on Timeout
-	increment term
-	Start a new election
-	Vote for yourself
-	send Alarm to self to timeout randomly in [T,2T] in order to start a new election
-	Send RequestVote RPC's to all servers, retry until:
-		receive votes from majority
-			become leader
-			send AppendEntries heartbeats to all other servers
-		receive RPC from valid leader
-			return to follower state
+on Timeout
+	sm.currentTerm++
+	sm.votedFor[sm.currentTerm] = sm.Id
+	sm.votesRecieved = 1
+	for (i=0; i<sm.numPeers; i++){
+		if (i != sm.Id)
+   		 Send(i, VoteReq(sm.Id, sm.term, sm.Id, sm.lastLogIndex, sm.lastLogTerm))
+	}
+	Alarm(random_number from [T,2T])
 
 
-4. on AppendEntriesReq(term, leaderId, prevLogIndex, prevLogTerm, entries[], leaderCommit):
-
-5. on AppendEntriesResp(term, success):
-	Error
-
-6. on VoteResp(term , voteGranted):
-	//use term
-	if voteGranted == true
-		vote++
-		if vote >= needed_for_majority
-			convert to leader
-			send initial empty AppendEntries RPCs (heartbeat) to each server
+on AppendEntriesReq(term, leaderId, prevLogIndex, prevLogTerm, entries[], leaderCommit):
+	if msg.term >= sm.currentTerm
+		sm.currentTerm = msg.term 
+		State = Follower
+		Alarm(sm.ElectionTimeout[T,2T])
 
 
+	if  sm.currentTerm > msg.term
+			 action = Send(msg.leaderId, AppendEntriesResp(sm.currentTerm, success =no))
+	else if  (sm.log[msg.prevLogIndex].term != msg.prevLogTerm)    
+	 		action = Send(msg.leaderId, AppendEntriesResp(sm.currentTerm, success =no))
+	else
+		 if  sm.lastLogIndex > msg.prevLogIndex
+		   		 sm.lastLogIndex = msg.prevLogIndex
+		   	 LogStore(sm.lastLogIndex + 1, entries)    
+		   	 sm.lastLogIndex += entries.size()
+		   	 sm.lastLogTerm = sm.CurrentTerm
+		   	 action = Send(msg.leaderID, AppendEntriesResp(sm.currentTerm, sm.lastLogIndex, success =yes))
+	   		 if sm.commitIndex < msg.leaderCommit   
+		   		 commitIndex = min(leaderCommit, sm.lastLogIndex)
+		   		 Commit(index, data, err)
+
+    Alarm(sm.ElectionTimeout[T,2T])
+
+
+on AppendEntriesResp(term, success):
+	//Drop
+
+on VoteResp(term , voteGranted):
+	if sm.currentTerm == msg.term && voteGranted == true
+   	 sm.votesRecieved ++ 
+  	
+	if sm.votesRecieved > sm.numPeers/2    
+		State = Leader
+		nextIndex[], matchIndex[] //reset both
+	 	for (i=0; i<sm.numPeers; i++)
+		 if (i != sm.Id)
+			 nextIndex[i] = sm.lastLogIndex + 1
+			 matchIndex[i] = 0
+			 send(i, AppendEntriesReq(sm.Id, sm.currentTerm, sm.lastLogIndex, sm.lastLogTerm, [], sm.commitIndex))
 
 
 
+
+--------------
 State : Leader
-Persisten state
-currentTerm
-votedFor
-log[]
+--------------
 
-Volatile State
-nextIndex[]
-matchIndex[]
-commitIndex
+on VoteReq(from, term, candidateId, lastLogIndex, lastLogTerm)
+  if msg.term > sm.currentTerm
+      sm.currentTerm = msg.term
+      change State = Follower
+      votedFor = msg.Id
+      Send(msg.from, VoteResp(sm.currentTerm, voteGranted =yes))
+    else     
+     action = Send(msg.from, VoteResp(sm.currentTerm, voteGranted =no))
 
-1. on VoteReq(from, term, candidateId, lastLogIndex, lastLogTerm)
+on Append(data:[]byte)
+	LogStore(sm.lastLogIndex + 1, data []byte)
+	for (i=0; i<sm.numPeers; i++) //to be done in parallel
+	     if (i != sm.Id)
+	   	   send(i, AppendEntriesReq(sm.Id, sm.term, sm.lastLogIndex, sm.lastLogTerm, byte, sm.commitIndex))
+	       nextIndex[i] = sm.lastLogIndex + 1
+	       matchIndex[i] = 0   
+	sm.lastLogIndex ++  
+	sm.lastLogTerm = sm.currentTerm
+	Alarm(heartBeatTimeOut)
+
+
+on Timeout
+	for (i=0; i<sm.numPeers; i++)
+     if (i != sm.Id)
+       nextIndex[i] = sm.lastLogIndex + 1
+       matchIndex[i] = 0
+       send(i, AppendEntriesReq(sm.Id, sm.term, sm.lastLogIndex, sm.lastLogTerm, [], sm.commitIndex))
+	Alarm(heartBeatTimeOut)
+
+on AppendEntriesReq(term, leaderId, prevLogIndex, prevLogTerm, entries[], leaderCommit):
 	if msg.term > sm.currentTerm
-		sm.currentTerm = msg.term 
-		become follower
+      sm.currentTerm = msg.term
+      State = Follower
+      Alarm(sm.ElectionTimeout)
 
-
-2. on Append(data:[]byte)
-	Append the command to its local log
-	Send AppendEntries RPC's to followers
-	On receiving majority ACK's
-		Entry is committed
-		Pass the command to state machine, return result to client
-		Notify followers of committed entries in subsequent AppenEntries RPC's
-
-
-3. on Timeout
-	Send heartbeats to all servers to maintain authority
-
-4. on AppendEntriesReq(term, leaderId, prevLogIndex, prevLogTerm, entries[], leaderCommit):
-	if msg.term > sm.currentTerm
-		sm.currentTerm = msg.term 
-		become follower
-
-5. on AppendEntriesResp( from, term, index, commitIndex, success):
-	If commitIndex ≥ nextIndex[msg.from] f
-		send AppendEntries RPC with log entries starting at nextIndex
-	If successful: 
-		nextIndex[msg.from]  
-		matchIndex[msg.from]
-	If AppendEntries fails because of log inconsistency:
+on AppendEntriesResp(term, index , success):
+	if success: 
+		matchIndex[msg.from] =  max ( matchIndex[msg.from], index) 
+		nextIndex[msg.from] = index + 1
+		if sm.lastLogIndex >= nextIndex[msg.from]
+			send(i, AppendEntriesReq(sm.Id, sm.currentTerm, nextIndex[msg.from], sm.lastLogTerm, log[nextIndex[msg.from]:sm.lastLogIndex], sm.commitIndex))
+		cnt =0
+		for(i =0; i< sm.numPeers; i++){
+			if (i != sm.Id && matchIndex[i] > leaderCommit ){
+				cnt++
+			}
+		}
+		if cnt > sm.numPeers/2 // Log entry at index "index" is stored on majority of server
+			leaderCommit++
+			Commit(index, data, err)
+					
+	else: //AppendEntries fails because of log inconsistency:
 		nextIndex[msg.from]--
-		Retry AppendEntriesReq
+		send(i, AppendEntriesReq(sm.Id, sm.currentTerm, nextIndex[msg.from], sm.lastLogTerm, log[nextIndex[msg.from]:sm.lastLogIndex], sm.commitIndex))
+	Alarm(heartBeatTimeOut)
 
-6. on VoteResp(term , voteGranted):
+on VoteResp(term , voteGranted):
 	if msg.term > sm.currentTerm
 		sm.currentTerm = msg.term 
-		become follower
+		state = Follower
+		Alarm(sm.ElectionTimeout)
 
