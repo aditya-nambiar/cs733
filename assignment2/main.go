@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 )
 
 const (
-	ELECTION_TIMEOUT  = 150 // milliseconds
+	ELECTION_TIMEOUT  = 500 // milliseconds
 	HEARTBEAT_TIMEOUT = 50  // milliseconds
 	NUM_SERVERS       = 5
 )
@@ -26,6 +27,9 @@ type AppendMsg struct {
 	Data []byte
 }
 
+type god struct {
+	term int
+}
 type server struct {
 	term        int
 	leaderID    int
@@ -43,6 +47,7 @@ type server struct {
 	timer       <-chan time.Time
 	mutex       sync.RWMutex
 	allPeers    map[int](chan interface{})
+	Stopped     chan bool
 }
 
 type VoteReq struct {
@@ -101,20 +106,23 @@ func (sm *server) getLogTerm(i int) int {
 }
 
 func (sm *server) Alarm(d time.Duration) {
-	sm.timer = time.After(d)
+	sm.timer = time.After(d * time.Millisecond)
 }
 
 func (sm *server) countVotes() int {
 	count := 0
-	for _, vote := range sm.voteGranted {
+	for peer, vote := range sm.voteGranted {
 		if vote {
 			count += 1
+			fmt.Println(peer)
 		}
+
 	}
+	fmt.Println("Count" + strconv.Itoa(count))
 	return count
 }
 
-func genRand(max int, min int) time.Duration {
+func genRand(min int, max int) time.Duration {
 	rand.Seed(time.Now().Unix())
 	return time.Duration(rand.Intn(max-min) + min)
 }
@@ -126,6 +134,10 @@ func (sm *server) termCheck(mterm int) {
 		sm.Alarm(genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2))
 		sm.state = "Follower"
 	}
+}
+
+func (sm *server) stopServer() {
+	sm.Stopped <- true
 }
 
 func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
@@ -176,7 +188,7 @@ func (sm *server) doVoteReq(msg VoteReq) {
 func (sm *server) eventloop() {
 	state := sm.state
 
-	for {
+	for sm.state != "Stopped" {
 		switch state {
 		case "Follower":
 			sm.followerLoop()
@@ -184,6 +196,7 @@ func (sm *server) eventloop() {
 			sm.candidateLoop()
 		case "Leader":
 			sm.leaderLoop()
+
 		}
 		state = sm.state
 	}
@@ -200,6 +213,9 @@ func (sm *server) followerLoop() {
 
 	for sm.state == "Follower" {
 		select {
+		case <-sm.Stopped:
+			sm.state = "Stopped"
+			return
 		case appendMsg := <-sm.clientCh:
 			t := reflect.TypeOf(appendMsg)
 			fmt.Println(t)
@@ -209,18 +225,17 @@ func (sm *server) followerLoop() {
 			switch t.Name() {
 			case "AppendEntriesReq":
 				msg := msg1.(AppendEntriesReq)
-				if sm.term <= msg.term {
-					sm.Alarm(genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2))
-				}
 				sm.doAppendEntriesReq(msg)
 
 			case "VoteReq":
 				msg := msg1.(VoteReq)
 				sm.doVoteReq(msg)
 
-			case "VoteResp":
-				msg := msg1.(VoteReq)
+			default:
+				msg := msg1.(god)
 				sm.termCheck(msg.term)
+				fmt.Println("God called updated " + strconv.Itoa(sm.term))
+				//Do Nothing
 			}
 		case <-sm.timer:
 			sm.state = "Candidate"
@@ -244,12 +259,16 @@ func (sm *server) candidateLoop() {
 				fmt.Println(peer)
 				//action = Send(peer, VoteReq(sm.Id, sm.term, sm.Id, sm.lastLogIndex, sm.lastLogTerm))
 			}
-			sm.voteGranted[sm.serverID] = true
+			fmt.Println("resetting")
 			sm.Alarm(genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2))
 			restartElection = false
 		}
 
 		select {
+		case <-sm.Stopped:
+			sm.state = "Stopped"
+			return
+
 		case appendMsg := <-sm.clientCh:
 			t := reflect.TypeOf(appendMsg)
 			fmt.Println(t)
@@ -260,11 +279,9 @@ func (sm *server) candidateLoop() {
 			case "VoteResp":
 				msg := msg1.(VoteResp)
 				sm.termCheck(msg.term)
-
 				if sm.term == msg.term {
 					sm.voteGranted[msg.from] = msg.voteGranted
 				}
-
 				if sm.countVotes() > NUM_SERVERS/2 {
 					sm.state = "Leader"
 					sm.leaderID = sm.serverID
@@ -285,10 +302,16 @@ func (sm *server) candidateLoop() {
 				msg := msg1.(AppendEntriesReq)
 				sm.doAppendEntriesReq(msg)
 
+			default:
+				msg := msg1.(god)
+				sm.termCheck(msg.term)
+				fmt.Println("God called updated " + strconv.Itoa(sm.term))
+
 			}
 
 		case <-sm.timer:
 			restartElection = true
+			fmt.Println("haha")
 		}
 	}
 }
@@ -298,6 +321,10 @@ func (sm *server) leaderLoop() {
 
 	for sm.state == "Leader" {
 		select {
+		case <-sm.Stopped:
+			sm.state = "Stopped"
+			return
+
 		case appendMsg := <-sm.clientCh:
 			t := reflect.TypeOf(appendMsg)
 			fmt.Println(t)
@@ -353,6 +380,10 @@ func (sm *server) leaderLoop() {
 						*/
 					}
 				}
+			default:
+				msg := msg1.(god)
+				sm.termCheck(msg.term)
+				fmt.Println("God called updated " + strconv.Itoa(sm.term))
 			} //end of switch
 
 		case <-sm.timer:
@@ -367,23 +398,19 @@ func (sm *server) leaderLoop() {
 	}
 }
 
-// func newServer() *server {
-// 	sm := server{
-// 		voteGranted: make(map[int]bool),
-// 		nextIndex:   make(map[int]int),
-// 		matchIndex:  make(map[int]int),
-// 		clientCh:    make(chan interface{}),
-// 		netCh:       make(chan interface{}),
-// 		actionCh:    make(chan interface{}),
-// 		votedFor:    -1,
-// 	}
-// 	return &sm
-// }
-
-func main() {
-	// sm1 := NewStateMachine()
-	// go sm1.eventLoop()
-
-	// sm2 := NewStateMachine()
-	// go sm2.eventLoop()
+func newServer(id int) *server {
+	sm := server{
+		serverID:    id,
+		voteGranted: make(map[int]bool),
+		nextIndex:   make(map[int]int),
+		matchIndex:  make(map[int]int),
+		clientCh:    make(chan interface{}),
+		netCh:       make(chan interface{}),
+		actionCh:    make(chan interface{}),
+		Stopped:     make(chan bool),
+		votedFor:    -1,
+		state:       "Follower",
+		term:        0,
+	}
+	return &sm
 }
