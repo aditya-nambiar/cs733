@@ -169,7 +169,6 @@ func (sm *server) termCheck(mterm int) {
 		sm.term = mterm
 		sm.votedFor = -1
 		sm.voteGranted = make(map[int]bool)
-		sm.actionCh <- Alarm{from: sm.serverID, time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
 		sm.state = "Follower"
 	}
 }
@@ -333,7 +332,7 @@ func (sm *server) candidateLoop() {
 					sm.leaderID = sm.serverID
 					for _, peer := range sm.allPeers { // send heartbeats to all servers and establish territory
 						info := make([]byte, 1)
-						var logentries []LogEntry
+						logentries := make([]LogEntry, 1)
 						logentry := LogEntry{data: info, term: sm.term}
 						logentries[0] = logentry
 						entryToStore := LogStore{from: sm.serverID, index: len(sm.log), data: info}

@@ -32,7 +32,7 @@ func errorCheck(expected string, response string, t *testing.T, err string) {
 
 func TestConversionToCandidate(t *testing.T) {
 	testserver := newServer(1)
-	//defer testserver.stopServer()
+	defer testserver.stopServer()
 	go testserver.eventloop()
 	out := <-testserver.actionCh
 	errorCheck("Alarm", reflect.TypeOf(out).Name(), t, "37")
@@ -51,26 +51,39 @@ func TestConversionToCandidate(t *testing.T) {
 			errorCheck("2 to 6", strconv.Itoa(out1.peerID), t, "Send to wrong neighbours")
 		}
 	}
+	out3 := <-testserver.actionCh
+	errorCheck("Alarm", reflect.TypeOf(out3).Name(), t, "37")
+
 }
 
-// func TestLeaderShipElection(t *testing.T) {
-// 	testserver := newServer(1)
-// 	defer testserver.stopServer()
-// 	go testserver.eventloop()
-// 	time.Sleep(1 * time.Second)
-// 	errorCheck("Candidate", testserver.state, t, "66") // Converted to Candidate
-// 	vr := VoteResp{from: 2, term: 2, voteGranted: true}
-// 	testserver.netCh <- vr
-// 	time.Sleep(500 * time.Millisecond)
-// 	errorCheck("Follower", testserver.state, t, "69") // Got bigger term
-// 	time.Sleep(1 * time.Second)
-// 	errorCheck("Candidate", testserver.state, t, "71") // Converted to Candidate timed out
-// 	testserver.netCh <- vr
-// 	vr = VoteResp{from: 3, term: testserver.term, voteGranted: true}
-// 	testserver.netCh <- vr
-// 	vr = VoteResp{from: 4, term: testserver.term, voteGranted: true}
-// 	testserver.netCh <- vr
-// 	time.Sleep(500 * time.Millisecond)
-// 	errorCheck("Leader", testserver.state, t, "75")
+func TestLeaderShipElection(t *testing.T) {
+	testserver := newServer(1)
+	//defer testserver.stopServer()
+	go testserver.eventloop()
+	testserver.state = "Candidate"
 
-// }
+	for i := 2; i <= 6; i++ {
+		<-testserver.actionCh
+	}
+	<-testserver.actionCh
+	vr := VoteResp{from: 2, term: 4, voteGranted: true}
+	testserver.netCh <- vr
+	errorCheck("Follower", testserver.state, t, "77") // Got bigger term
+	<-testserver.actionCh
+	tOut := Timeout{}
+	testserver.netCh <- tOut
+	time.Sleep(100 * time.Millisecond)
+	errorCheck("Candidate", testserver.state, t, "80") // Converted to Candidate timed out
+	for i := 2; i <= 6; i++ {
+		<-testserver.actionCh
+	}
+	<-testserver.actionCh
+	testserver.netCh <- vr
+	vr = VoteResp{from: 3, term: testserver.term, voteGranted: true}
+	testserver.netCh <- vr
+	vr = VoteResp{from: 4, term: testserver.term, voteGranted: true}
+	testserver.netCh <- vr
+	time.Sleep(100 * time.Millisecond)
+	errorCheck("Leader", testserver.state, t, "87")
+
+}
