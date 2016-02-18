@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
-	"time"
 )
 
 func check(obj interface{}) {
@@ -32,15 +31,16 @@ func errorCheck(expected string, response string, t *testing.T, err string) {
 
 func TestConversionToCandidate(t *testing.T) {
 	testserver := newServer(1)
-	defer testserver.stopServer()
-	go testserver.eventloop()
-	out := <-testserver.actionCh
-	errorCheck("Alarm", reflect.TypeOf(out).Name(), t, "37")
+	//defer testserver.stopServer()
 	tOut := Timeout{}
-	errorCheck("Follower", testserver.state, t, "39")
 	testserver.netCh <- tOut
-	time.Sleep(100 * time.Millisecond)
+	testserver.followerLoop()
+	out3 := <-testserver.actionCh
+	errorCheck("Alarm", reflect.TypeOf(out3).Name(), t, "37")
 	errorCheck("Candidate", testserver.state, t, "41")
+	testserver.Stopped <- true
+	testserver.candidateLoop()
+
 	for i := 2; i <= 6; i++ {
 		out2 := <-testserver.actionCh
 		errorCheck("Send", reflect.TypeOf(out2).Name(), t, "44")
@@ -51,39 +51,60 @@ func TestConversionToCandidate(t *testing.T) {
 			errorCheck("2 to 6", strconv.Itoa(out1.peerID), t, "Send to wrong neighbours")
 		}
 	}
-	out3 := <-testserver.actionCh
+	out3 = <-testserver.actionCh
 	errorCheck("Alarm", reflect.TypeOf(out3).Name(), t, "37")
 
 }
 
+func TestSteppingDown(t *testing.T) {
+	testserver := newServer(1)
+	testserver.state = "Candidate"
+	testserver.term = 1
+	vr := VoteResp{from: 3, term: 3, voteGranted: true}
+	testserver.doVoteResp(vr)
+	errorCheck("Follower", testserver.state, t, "65") // Larger term
+}
+
 func TestLeaderShipElection(t *testing.T) {
 	testserver := newServer(1)
-	//defer testserver.stopServer()
-	go testserver.eventloop()
 	testserver.state = "Candidate"
+	testserver.term = 1
+	vr := VoteResp{from: 3, term: testserver.term, voteGranted: true}
+	testserver.doVoteResp(vr)
+	errorCheck("Candidate", testserver.state, t, "74")
+	testserver.doVoteResp(vr)
+	testserver.doVoteResp(vr)
+	testserver.doVoteResp(vr)
+
+	errorCheck("Candidate", testserver.state, t, "76")
+	vr.from = 2
+	testserver.doVoteResp(vr)
+
+	errorCheck("Candidate", testserver.state, t, "76")
+	vr.from = 4
+	testserver.doVoteResp(vr)
+	errorCheck("Leader", testserver.state, t, "76")
 
 	for i := 2; i <= 6; i++ {
-		<-testserver.actionCh
+		out2 := <-testserver.actionCh
+		errorCheck("LogStore", reflect.TypeOf(out2).Name(), t, "79")
+		out2 = <-testserver.actionCh
+		errorCheck("Send", reflect.TypeOf(out2).Name(), t, "94")
 	}
-	<-testserver.actionCh
-	vr := VoteResp{from: 2, term: 4, voteGranted: true}
-	testserver.netCh <- vr
-	errorCheck("Follower", testserver.state, t, "77") // Got bigger term
-	<-testserver.actionCh
-	tOut := Timeout{}
-	testserver.netCh <- tOut
-	time.Sleep(100 * time.Millisecond)
-	errorCheck("Candidate", testserver.state, t, "80") // Converted to Candidate timed out
+
+}
+
+func TestLeaderSendHearbeats(t *testing.T) {
+	testserver := newServer(1)
+	testserver.state = "Leader"
+	testserver.doLeaderTimedOut()
 	for i := 2; i <= 6; i++ {
-		<-testserver.actionCh
+		out2 := <-testserver.actionCh
+		errorCheck("LogStore", reflect.TypeOf(out2).Name(), t, "103")
+		out2 = <-testserver.actionCh
+		errorCheck("Send", reflect.TypeOf(out2).Name(), t, "105")
 	}
-	<-testserver.actionCh
-	testserver.netCh <- vr
-	vr = VoteResp{from: 3, term: testserver.term, voteGranted: true}
-	testserver.netCh <- vr
-	vr = VoteResp{from: 4, term: testserver.term, voteGranted: true}
-	testserver.netCh <- vr
-	time.Sleep(100 * time.Millisecond)
-	errorCheck("Leader", testserver.state, t, "87")
+	out3 := <-testserver.actionCh
+	errorCheck("Alarm", reflect.TypeOf(out3).Name(), t, "108")
 
 }

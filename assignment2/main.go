@@ -176,6 +176,39 @@ func (sm *server) termCheck(mterm int) {
 func (sm *server) stopServer() {
 	sm.Stopped <- true
 }
+func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
+	sm.termCheck(msg.term)
+
+	if sm.term == msg.term && sm.state == "Leader" {
+		if msg.success {
+			sm.matchIndex[msg.from] = msg.matchIndex
+			sm.nextIndex[msg.from] = msg.matchIndex + 1
+
+			if sm.matchIndex[msg.from] < len(sm.log)-1 { //??
+				sm.nextIndex[msg.from] = len(sm.log) - 1 // Doubt
+				temp_prevLogIndex := sm.nextIndex[msg.from] - 1
+				temp_prevLogTerm := sm.getLogTerm(temp_prevLogIndex)
+				appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: temp_prevLogIndex, prevLogTerm: temp_prevLogTerm, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
+				sm.actionCh <- Send{from: sm.serverID, peerID: msg.from, event: appendreq}
+			}
+
+			cnt := 0
+			for _, peer := range sm.allPeers {
+				if sm.matchIndex[peer] > sm.commitIndex {
+					cnt += 1
+				}
+			}
+			if cnt > NUM_SERVERS/2 {
+				sm.commitIndex++
+				sm.actionCh <- Commit{from: sm.serverID, data: sm.log[sm.commitIndex], err: ""}
+			}
+		} else {
+			sm.nextIndex[msg.from] = max(0, sm.nextIndex[msg.from]-1)
+			appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: sm.nextIndex[msg.from], prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
+			sm.actionCh <- Send{from: sm.serverID, peerID: msg.from, event: appendreq}
+		}
+	}
+}
 
 //Erase extraneous entries post mismatch 41:00
 func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
@@ -224,6 +257,47 @@ func (sm *server) doVoteReq(msg VoteReq) {
 		voteresp := VoteResp{from: sm.serverID, term: sm.term, voteGranted: false}
 		sm.actionCh <- voteresp
 	}
+}
+
+func (sm *server) doVoteResp(msg VoteResp) {
+	sm.termCheck(msg.term)
+	if sm.term == msg.term {
+		sm.voteGranted[msg.from] = msg.voteGranted
+	}
+	if sm.countVotes() > NUM_SERVERS/2 {
+		sm.state = "Leader"
+		sm.leaderID = sm.serverID
+		for _, peer := range sm.allPeers { // send heartbeats to all servers and establish territory
+			info := make([]byte, 1)
+			logentries := make([]LogEntry, 1)
+			logentry := LogEntry{data: info, term: sm.term}
+			logentries[0] = logentry
+			entryToStore := LogStore{from: sm.serverID, index: len(sm.log), data: info}
+			sm.actionCh <- entryToStore
+			sm.nextIndex[peer] = len(sm.log) // ?? check
+			sm.matchIndex[peer] = -1         // Add this empty entry t ur own log ?
+			appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: len(sm.log) - 1, prevLogTerm: sm.getLogTerm(-1), entries: logentries, leaderCommit: sm.commitIndex}
+			sm.actionCh <- Send{from: sm.serverID, peerID: peer, event: appendreq}
+		}
+		sm.actionCh <- Alarm{from: sm.serverID, time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
+	}
+
+}
+
+func (sm *server) doLeaderTimedOut() {
+	for _, peer := range sm.allPeers {
+		if peer != sm.serverID {
+			info := make([]byte, 1)
+			logentries := make([]LogEntry, 1)
+			logentry := LogEntry{data: info, term: sm.term}
+			logentries[0] = logentry
+			entryToStore := LogStore{from: sm.serverID, index: len(sm.log), data: info}
+			sm.actionCh <- entryToStore
+			appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: len(sm.log) - 1, prevLogTerm: sm.getLogTerm(-1), entries: logentries, leaderCommit: sm.commitIndex}
+			sm.actionCh <- Send{from: sm.serverID, peerID: peer, event: appendreq}
+		}
+	}
+	sm.actionCh <- Alarm{from: sm.serverID, time: genRand(HEARTBEAT_TIMEOUT, HEARTBEAT_TIMEOUT*2)}
 }
 
 func (sm *server) eventloop() {
@@ -323,28 +397,7 @@ func (sm *server) candidateLoop() {
 			switch t.Name() {
 			case "VoteResp":
 				msg := msg1.(VoteResp)
-				sm.termCheck(msg.term)
-				if sm.term == msg.term {
-					sm.voteGranted[msg.from] = msg.voteGranted
-				}
-				if sm.countVotes() > NUM_SERVERS/2 {
-					sm.state = "Leader"
-					sm.leaderID = sm.serverID
-					for _, peer := range sm.allPeers { // send heartbeats to all servers and establish territory
-						info := make([]byte, 1)
-						logentries := make([]LogEntry, 1)
-						logentry := LogEntry{data: info, term: sm.term}
-						logentries[0] = logentry
-						entryToStore := LogStore{from: sm.serverID, index: len(sm.log), data: info}
-						sm.actionCh <- entryToStore
-						sm.nextIndex[peer] = len(sm.log) // ?? check
-						sm.matchIndex[peer] = -1         // Add this empty entry t ur own log ?
-						appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: len(sm.log) - 1, prevLogTerm: sm.getLogTerm(-1), entries: logentries, leaderCommit: sm.commitIndex}
-						sm.actionCh <- Send{from: sm.serverID, peerID: peer, event: appendreq}
-					}
-					sm.actionCh <- Alarm{from: sm.serverID, time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
-				}
-
+				sm.doVoteResp(msg)
 			case "VoteReq":
 				msg := msg1.(VoteReq)
 				sm.doVoteReq(msg)
@@ -393,52 +446,10 @@ func (sm *server) leaderLoop() {
 
 			case "AppendEntriesResp":
 				msg := msg1.(AppendEntriesResp)
-				sm.termCheck(msg.term)
+				sm.doAppendEntriesResp(msg)
 
-				if sm.term == msg.term && sm.state == "Leader" {
-					if msg.success {
-						sm.matchIndex[msg.from] = msg.matchIndex
-						sm.nextIndex[msg.from] = msg.matchIndex + 1
-
-						if sm.matchIndex[msg.from] < len(sm.log)-1 { //??
-							sm.nextIndex[msg.from] = len(sm.log) - 1 // Doubt
-							temp_prevLogIndex := sm.nextIndex[msg.from] - 1
-							temp_prevLogTerm := sm.getLogTerm(temp_prevLogIndex)
-							appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: temp_prevLogIndex, prevLogTerm: temp_prevLogTerm, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
-							sm.actionCh <- Send{from: sm.serverID, peerID: msg.from, event: appendreq}
-						}
-
-						cnt := 0
-						for _, peer := range sm.allPeers {
-							if sm.matchIndex[peer] > sm.commitIndex {
-								cnt += 1
-							}
-						}
-						if cnt > NUM_SERVERS/2 {
-							sm.commitIndex++
-							sm.actionCh <- Commit{from: sm.serverID, data: sm.log[sm.commitIndex], err: ""}
-						}
-					} else {
-						sm.nextIndex[msg.from] = max(0, sm.nextIndex[msg.from]-1)
-						appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: sm.nextIndex[msg.from], prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
-						sm.actionCh <- Send{from: sm.serverID, peerID: msg.from, event: appendreq}
-					}
-				}
 			case "Timeout":
-				for _, peer := range sm.allPeers {
-					if peer != sm.serverID {
-						info := make([]byte, 1)
-						var logentries []LogEntry
-						logentry := LogEntry{data: info, term: sm.term}
-						logentries[0] = logentry
-						entryToStore := LogStore{from: sm.serverID, index: len(sm.log), data: info}
-						sm.actionCh <- entryToStore
-						appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: len(sm.log) - 1, prevLogTerm: sm.getLogTerm(-1), entries: logentries, leaderCommit: sm.commitIndex}
-						sm.actionCh <- Send{from: sm.serverID, peerID: peer, event: appendreq}
-					}
-					sm.actionCh <- Alarm{from: sm.serverID, time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
-				}
-				sm.actionCh <- Alarm{from: sm.serverID, time: genRand(HEARTBEAT_TIMEOUT, HEARTBEAT_TIMEOUT*2)}
+				sm.doLeaderTimedOut()
 
 			default:
 				msg := msg1.(god)
@@ -455,10 +466,10 @@ func newServer(id int) *server {
 		voteGranted: make(map[int]bool),
 		nextIndex:   make(map[int]int),
 		matchIndex:  make(map[int]int),
-		clientCh:    make(chan interface{}),
-		netCh:       make(chan interface{}),
-		actionCh:    make(chan interface{}),
-		Stopped:     make(chan bool),
+		clientCh:    make(chan interface{}, 12),
+		netCh:       make(chan interface{}, 12),
+		actionCh:    make(chan interface{}, 12),
+		Stopped:     make(chan bool, 2),
 		votedFor:    -1,
 		state:       "Follower",
 		term:        0,
