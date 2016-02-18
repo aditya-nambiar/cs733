@@ -155,7 +155,7 @@ func (sm *server) logit(index int, data []byte, term int) {
 	if index < len(sm.log) {
 		sm.log[index] = LogEntry{data: data, term: term, committed: false}
 	} else {
-		sm.log = append(sm.log, make([]LogEntry, index+1)...)
+		sm.log = append(sm.log, make([]LogEntry, index)...)
 		sm.log[index] = LogEntry{data: data, term: term, committed: false}
 	}
 }
@@ -176,6 +176,7 @@ func (sm *server) termCheck(mterm int) {
 func (sm *server) stopServer() {
 	sm.Stopped <- true
 }
+
 func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 	sm.termCheck(msg.term)
 
@@ -203,8 +204,18 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 				sm.actionCh <- Commit{from: sm.serverID, data: sm.log[sm.commitIndex], err: ""}
 			}
 		} else {
-			sm.nextIndex[msg.from] = max(0, sm.nextIndex[msg.from]-1)
-			appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: sm.nextIndex[msg.from], prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
+			var lin int
+			if sm.nextIndex[msg.from]-1 <= 0 {
+				lin = -1
+				sm.nextIndex[msg.from] = 0
+			} else {
+				lin = sm.nextIndex[msg.from] - 1
+				sm.nextIndex[msg.from] = lin
+			}
+			//sm.nextIndex[msg.from] = max(0, sm.nextIndex[msg.from]-1)
+			var appendreq AppendEntriesReq
+			//appendreq = AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: sm.nextIndex[msg.from], prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
+			appendreq = AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: lin, prevLogTerm: sm.log[lin].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{from: sm.serverID, peerID: msg.from, event: appendreq}
 		}
 	}
@@ -212,8 +223,6 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 
 //Erase extraneous entries post mismatch 41:00
 func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
-
-	sm.termCheck(msg.term)
 
 	if sm.term > msg.term {
 		appendresp := AppendEntriesResp{from: sm.serverID, term: sm.term, matchIndex: -1, success: false}
@@ -223,21 +232,29 @@ func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
 		sm.leaderID = msg.leaderID
 		sm.state = "Follower"
 		var index int
+		check := false
 		if msg.prevLogIndex == -1 || (msg.prevLogIndex <= len(sm.log)-1 && sm.getLogTerm(msg.prevLogIndex) == msg.prevLogTerm) {
 			index = msg.prevLogIndex
+			check = true
 			for j := 0; j < len(msg.entries); j += 1 {
 				index += 1
-				if sm.getLogTerm(index) != msg.entries[j].term {
+				fmt.Println(len(sm.log))
+				if index >= len(sm.log) || sm.getLogTerm(index) != msg.entries[j].term {
+					fmt.Println(len(sm.log))
+
 					sm.logit(index, msg.entries[j].data, msg.entries[j].term)
+					fmt.Println(len(sm.log))
+
 					entryToStore := LogStore{from: sm.serverID, index: index, data: msg.entries[j].data}
 					sm.actionCh <- entryToStore
+
 				}
 			}
 			sm.commitIndex = min(msg.leaderCommit, index)
 		} else {
 			index = -1
 		}
-		appendresp := AppendEntriesResp{from: sm.serverID, term: sm.term, matchIndex: index, success: true}
+		appendresp := AppendEntriesResp{from: sm.serverID, term: sm.term, matchIndex: index, success: check}
 		sm.actionCh <- appendresp
 	}
 }
@@ -272,6 +289,7 @@ func (sm *server) doVoteResp(msg VoteResp) {
 			logentries := make([]LogEntry, 1)
 			logentry := LogEntry{data: info, term: sm.term}
 			logentries[0] = logentry
+			sm.logit(len(sm.log), info, sm.term)
 			entryToStore := LogStore{from: sm.serverID, index: len(sm.log), data: info}
 			sm.actionCh <- entryToStore
 			sm.nextIndex[peer] = len(sm.log) // ?? check
@@ -291,6 +309,7 @@ func (sm *server) doLeaderTimedOut() {
 			logentries := make([]LogEntry, 1)
 			logentry := LogEntry{data: info, term: sm.term}
 			logentries[0] = logentry
+			sm.logit(len(sm.log), info, sm.term)
 			entryToStore := LogStore{from: sm.serverID, index: len(sm.log), data: info}
 			sm.actionCh <- entryToStore
 			appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: len(sm.log) - 1, prevLogTerm: sm.getLogTerm(-1), entries: logentries, leaderCommit: sm.commitIndex}
