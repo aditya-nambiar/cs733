@@ -134,10 +134,6 @@ func (sm *server) getLogTerm(i int) int {
 	}
 }
 
-func (sm *server) Alarm(d time.Duration) {
-	sm.timer = time.After(d * time.Millisecond)
-}
-
 func (sm *server) countVotes() int {
 	count := 0
 	for peer, vote := range sm.voteGranted {
@@ -171,10 +167,6 @@ func (sm *server) termCheck(mterm int) {
 		sm.voteGranted = make(map[int]bool)
 		sm.state = "Follower"
 	}
-}
-
-func (sm *server) stopServer() {
-	sm.Stopped <- true
 }
 
 func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
@@ -215,7 +207,7 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 			//sm.nextIndex[msg.from] = max(0, sm.nextIndex[msg.from]-1)
 			var appendreq AppendEntriesReq
 			//appendreq = AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: sm.nextIndex[msg.from], prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
-			appendreq = AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: lin, prevLogTerm: sm.log[lin].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
+			appendreq = AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: lin, prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{from: sm.serverID, peerID: msg.from, event: appendreq}
 		}
 	}
@@ -240,10 +232,8 @@ func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
 				index += 1
 				fmt.Println(len(sm.log))
 				if index >= len(sm.log) || sm.getLogTerm(index) != msg.entries[j].term {
-					fmt.Println(len(sm.log))
 
 					sm.logit(index, msg.entries[j].data, msg.entries[j].term)
-					fmt.Println(len(sm.log))
 
 					entryToStore := LogStore{from: sm.serverID, index: index, data: msg.entries[j].data}
 					sm.actionCh <- entryToStore
@@ -394,7 +384,6 @@ func (sm *server) candidateLoop() {
 			// Send RequestVote RPCs to all other servers.
 			for _, peer := range sm.allPeers {
 				votereq := VoteReq{term: sm.term, candidateID: sm.serverID, lastLogIndex: len(sm.log) - 1, lastLogTerm: sm.getLogTerm(-1)}
-				fmt.Println("Sending to " + strconv.Itoa(peer))
 				sm.actionCh <- Send{from: sm.serverID, peerID: peer, event: votereq}
 			}
 			fmt.Println("resetting")

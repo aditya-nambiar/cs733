@@ -183,9 +183,122 @@ func TestAppendEntriesReqReWriteLog(t *testing.T) {
 	}
 }
 
-func TestLeader(t *testing.T) {
+func TestLeaderFailuresinAppend(t *testing.T) {
 	testserver := newServer(1)
 	testserver.state = "Leader"
-	appendresp := AppendEntriesResp{from: sm.serverID, term: sm.term, matchIndex: -1, success: false}
-	sm.actionCh <- appendresp
+	testserver.term = 4
+	info := []byte{'#', '#'}
+	logentries := make([]LogEntry, 8)
+	logentry := LogEntry{data: info, term: 1}
+	for i := 0; i < 8; i++ {
+		logentries[i] = logentry
+	}
+	testserver.log = logentries
+	for i := 2; i <= 6; i++ {
+		testserver.nextIndex[i] = i + 2
+	}
+	appendresp := AppendEntriesResp{from: 2, term: 4, matchIndex: 5, success: false}
+	testserver.doAppendEntriesResp(appendresp)
+	out3 := <-testserver.actionCh
+	resp := out3.(Send).event.(AppendEntriesReq)
+	errorCheck("3", strconv.Itoa(resp.prevLogIndex), t, "203")
+	testserver.nextIndex[2] = 1
+	appendresp = AppendEntriesResp{from: 2, term: 4, matchIndex: 0, success: false}
+	testserver.doAppendEntriesResp(appendresp)
+	out3 = <-testserver.actionCh
+	resp = out3.(Send).event.(AppendEntriesReq)
+	errorCheck("-1", strconv.Itoa(resp.prevLogIndex), t, "208")
+	errorCheck("8", strconv.Itoa(len(resp.entries)), t, "209")
+
+}
+
+func TestLeaderSuccessinAppend(t *testing.T) {
+	testserver := newServer(1)
+	testserver.state = "Leader"
+	testserver.term = 4
+	testserver.commitIndex = 0
+	info := []byte{'#', '#'}
+	logentries := make([]LogEntry, 8)
+	logentry := LogEntry{data: info, term: 1}
+	for i := 0; i < 8; i++ {
+		logentries[i] = logentry
+	}
+	testserver.log = logentries
+	for i := 2; i <= 6; i++ {
+		testserver.nextIndex[i] = i + 2
+	}
+	appendresp := AppendEntriesResp{from: 2, term: 4, matchIndex: 5, success: true}
+	testserver.doAppendEntriesResp(appendresp)
+	out3 := <-testserver.actionCh
+	resp := out3.(Send).event.(AppendEntriesReq)
+	errorCheck("6", strconv.Itoa(resp.prevLogIndex), t, "233")
+	appendresp = AppendEntriesResp{from: 3, term: 4, matchIndex: 4, success: true}
+	testserver.doAppendEntriesResp(appendresp)
+	out3 = <-testserver.actionCh
+	resp = out3.(Send).event.(AppendEntriesReq)
+
+	errorCheck("6", strconv.Itoa(resp.prevLogIndex), t, "239")
+
+	appendresp = AppendEntriesResp{from: 4, term: 4, matchIndex: 3, success: true}
+	errorCheck("0", strconv.Itoa(testserver.commitIndex), t, "244")
+	testserver.doAppendEntriesResp(appendresp)
+	out3 = <-testserver.actionCh
+	resp = out3.(Send).event.(AppendEntriesReq)
+	errorCheck("1", strconv.Itoa(testserver.commitIndex), t, "244")
+	errorCheck("6", strconv.Itoa(resp.prevLogIndex), t, "246")
+
+}
+
+func TestVoteReq(t *testing.T) {
+	testserver := newServer(1)
+	testserver.state = "Follower"
+	testserver.term = 2
+	votereq := VoteReq{term: 4, candidateID: 2, lastLogIndex: 5, lastLogTerm: 5}
+	testserver.doVoteReq(votereq)
+	out3 := <-testserver.actionCh
+	out3 = <-testserver.actionCh
+
+	voteresp := out3.(VoteResp)
+	if !voteresp.voteGranted {
+		errorCheck("0", "1", t, "Incorrect vote given 263")
+	}
+	votereq = VoteReq{term: 1, candidateID: 2, lastLogIndex: 5, lastLogTerm: 5}
+	testserver.doVoteReq(votereq)
+	out3 = <-testserver.actionCh
+	voteresp = out3.(VoteResp)
+	if voteresp.voteGranted {
+		errorCheck("0", "1", t, "Incorrect vote given 270")
+	}
+	info := []byte{'#', '#'}
+	logentries := make([]LogEntry, 8)
+	logentry := LogEntry{data: info, term: 4}
+	for i := 0; i < 6; i++ {
+		logentries[i] = logentry
+	}
+	testserver.log = logentries
+	errorCheck("2", strconv.Itoa(testserver.votedFor), t, "279")
+	testserver.votedFor = -1
+	votereq = VoteReq{term: 4, candidateID: 2, lastLogIndex: 2, lastLogTerm: 5}
+	testserver.doVoteReq(votereq)
+
+	out3 = <-testserver.actionCh
+	out3 = <-testserver.actionCh
+
+	voteresp = out3.(VoteResp)
+	if !voteresp.voteGranted {
+		errorCheck("0", "1", t, "Incorrect vote given 286")
+	}
+
+	testserver.votedFor = -1
+	votereq = VoteReq{term: 4, candidateID: 2, lastLogIndex: 6, lastLogTerm: 6}
+	testserver.doVoteReq(votereq)
+
+	out3 = <-testserver.actionCh
+	out3 = <-testserver.actionCh
+
+	voteresp = out3.(VoteResp)
+	if !voteresp.voteGranted {
+		errorCheck("0", "1", t, "Incorrect vote given 286")
+	}
+
 }
