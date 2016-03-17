@@ -22,6 +22,7 @@ type LogEntry struct {
 	term      int
 }
 
+
 type AppendMsg struct {
 	Data []byte
 }
@@ -468,7 +469,7 @@ func (sm *server) leaderLoop() {
 	}
 }
 
-func newServer(id int) *server {
+func newServer(id int, ) *server {
 	sm := server{
 		serverID:    id,
 		voteGranted: make(map[int]bool),
