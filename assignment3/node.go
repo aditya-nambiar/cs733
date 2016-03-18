@@ -144,7 +144,7 @@ func (node *RaftNode) process(ev  interface{}) {
 		ev1 := ev.(Send)
 		fmt.Print("Send ", ev1.From, ev1.PeerID)
 		fmt.Println(reflect.TypeOf(ev1.Event).Name())
-		node.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev.(Send).PeerID), Msg: ev1.Event}
+		node.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev1.PeerID), Msg: ev1.Event}
 
 	}
 }
@@ -222,7 +222,7 @@ var configs cluster.Config = cluster.Config{
 		{Id: 2, Address: "localhost:8002"},
 		{Id: 3, Address: "localhost:8003"},
 		{Id: 4, Address: "localhost:8004"},
-		{Id: 0, Address: "localhost:8005"}}}
+		{Id: 0, Address: "localhost:8000"}}}
 
 //********************************************************************************************
 

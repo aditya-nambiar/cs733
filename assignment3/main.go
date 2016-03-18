@@ -452,12 +452,12 @@ func (sm *server) leaderLoop() {
 			return
 
 		case appendMsg := <-sm.clientCh:
-			dt := appendMsg.(AppendMsg)
+			dt := appendMsg.([]byte)
 			fmt.Println("Here")
-			sm.logit(len(sm.log), dt.Data, sm.term)
+			sm.logit(len(sm.log), dt, sm.term)
 			for i:=0; i<sm.num_servers; i++ {
 				if (i != sm.serverID) {
-					logentry := LogEntry{Data: dt.Data, Term: sm.term}
+					logentry := LogEntry{Data: dt, Term: sm.term}
 					logentries := make([]LogEntry, 1)
 					logentries[0] = logentry
 					fmt.Println("Sending", i)
