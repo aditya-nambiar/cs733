@@ -201,7 +201,7 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 			}
 			if cnt > NUM_SERVERS/2 {
 				sm.commitIndex++
-				sm.actionCh <- Commit{From: sm.serverID, Data: sm.log[sm.commitIndex], Err: ""}
+				sm.actionCh <- Commit{From: sm.serverID, Data: sm.log[sm.commitIndex-1], Err: ""}
 			}
 		} else {
 			var lin int
@@ -238,7 +238,7 @@ func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
 			check = true
 			for j := 0; j < len(msg.Entries); j += 1 {
 				index += 1
-				fmt.Println(len(sm.log))
+				fmt.Println("Length of log" + string(len(sm.log)))
 				if index >= len(sm.log) || sm.getLogTerm(index) != msg.Entries[j].Term {
 
 					sm.logit(index, msg.Entries[j].Data, msg.Entries[j].Term)
@@ -294,6 +294,7 @@ func (sm *server) doVoteResp(msg VoteResp) {
 			entryToStore := LogStore{From: sm.serverID, Index: len(sm.log), Data: info}
 			sm.actionCh <- entryToStore
 			sm.nextIndex[peer] = len(sm.log) // ?? check
+			fmt.Println("Sending empty appends ############")
 			sm.matchIndex[peer] = -1         // Add this empty entry t ur own log ?
 			appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{From: sm.serverID, PeerID: peer, Event: appendreq}
@@ -493,7 +494,7 @@ func (sm *server) leaderLoop() {
 	}
 }
 
-func newServer(id int, ) *server {
+func newServer(id int,l int ) *server {
 	sm := server{
 		serverID:    id,
 		voteGranted: make(map[int]bool),
@@ -515,6 +516,8 @@ func newServer(id int, ) *server {
 	logentry := LogEntry{Data: info, Term: 0}
 	logentries[0] = logentry
 	sm.log = logentries
-	sm.allPeers = []int{2, 3, 4, 5, 6}
+	sm.num_servers = l
+	//var f []int
+	sm.allPeers = []int{0, 1,2,3, 4} // Change this
 	return &sm
 }

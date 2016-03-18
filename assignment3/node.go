@@ -75,7 +75,7 @@ func NewRaftNode(config Config, id int) RaftNode {
 	node.LogDir = config.LogDir
 	node.raft_log, _ = log.Open(node.LogDir + "/Log" + strconv.Itoa(config.Id))
 	node.commitCh = make(chan CommitInfo, 100)
-	node.sm = newServer(id) // change to ID
+	node.sm = newServer(id, len(configs.Peers)) // change to ID
 	node.mutex = &sync.RWMutex{}
 	node.logMutex = &sync.RWMutex{}
 
@@ -152,54 +152,104 @@ func (node *RaftNode) process(ev  interface{}) {
 	}
 }
 
-func (node *RaftNode) processEvents() {
-	go node.sm.eventloop()
-	//fmt.Println("Started ", rn.sm.id)
-	node.timer = time.NewTimer(node.electionTimeout + time.Duration(rand.Intn(1000)))
+func (node *RaftNode)listening_events(){
 	for {
 
-		var actions []interface{}
-
 		select {
-		case <- node.shutdown :
+		case <-node.shutdown:
 			node.mutex.Unlock()
 			return
 		/*case appendMsg := <- node.sm.clientCh : // RaftNode gets an Append([]byte) message
 			fmt.Println("Here 2")
 			node.sm.clientCh <- appendMsg
 		*/
-		case envMsg := <- node.serverMailBox.Inbox() : // RaftNode gets a message from other nodes in the cluster
+		case envMsg := <-node.serverMailBox.Inbox():
+		// RaftNode gets a message from other nodes in the cluster
 
 			b := envMsg.Msg.(interface{})
-			//fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
+		//fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
 			node.sm.netCh <- b
-		case <- node.timer.C:  // Timeout for internal server
+		case <-node.timer.C:
+		// Timeout for internal server
 			fmt.Println("Timer Timer")
 			node.sm.netCh <- Timeout{}
 		}
 
-		var e ActionsCompleted
-		node.sm.actionCh <- e
-
-
-		// Collect all actions from the internal server
-		for {
-			t := <- node.sm.actionCh
-			nm := reflect.TypeOf(t)
-			if(nm.Name() == "ActionsCompleted") {
-				break
-			}
-			//fmt.Println("Yoo " + nm.Name())
-			actions = append(actions, t)
-		}
-
-		// Process the actions obtained
-		for i:=0; i< len(actions); i++ {
-			node.process(actions[i])
-		}
-
-		//combine the above
 	}
+}
+
+func (node *RaftNode)doing_actions(){
+
+	var e ActionsCompleted
+	node.sm.actionCh <- e
+	//var actions []interface{}
+
+
+	// Collect all actions from the internal server
+	for {
+		t := <- node.sm.actionCh
+		if(reflect.TypeOf(t).Name() == "Send" ) {
+			rt := t.(Send)
+			fmt.Println("REceieved action " + reflect.TypeOf(rt.Event).Name())
+		}
+		go node.process(t)
+		//actions = append(actions, t)
+	}
+
+
+
+}
+
+func (node *RaftNode) processEvents() {
+	go node.sm.eventloop()
+	go node.listening_events()
+	go node.doing_actions()
+	//fmt.Println("Started ", rn.sm.id)
+	node.timer = time.NewTimer(node.electionTimeout + time.Duration(rand.Intn(1000)))
+	//for {
+	//
+	//	var actions []interface{}
+	//
+	//	select {
+	//	case <- node.shutdown :
+	//		node.mutex.Unlock()
+	//		return
+	//	/*case appendMsg := <- node.sm.clientCh : // RaftNode gets an Append([]byte) message
+	//		fmt.Println("Here 2")
+	//		node.sm.clientCh <- appendMsg
+	//	*/
+	//	case envMsg := <- node.serverMailBox.Inbox() : // RaftNode gets a message from other nodes in the cluster
+	//
+	//		b := envMsg.Msg.(interface{})
+	//		//fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
+	//		node.sm.netCh <- b
+	//	case <- node.timer.C:  // Timeout for internal server
+	//		fmt.Println("Timer Timer")
+	//		node.sm.netCh <- Timeout{}
+	//	}
+	//
+	//	var e ActionsCompleted
+	//	node.sm.actionCh <- e
+	//
+	//
+	//	// Collect all actions from the internal server
+	//	for {
+	//		t := <- node.sm.actionCh
+	//		nm := reflect.TypeOf(t)
+	//		if(nm.Name() == "ActionsCompleted") {
+	//			break
+	//		}
+	//		//fmt.Println("Yoo " + nm.Name())
+	//		actions = append(actions, t)
+	//	}
+	//
+	//	// Process the actions obtained
+	//	for i:=0; i< len(actions); i++ {
+	//		node.process(actions[i])
+	//	}
+	//
+	//	//combine the above
+	//}
 }
 
 // Returns leader of cluster if present, nil otherwise
