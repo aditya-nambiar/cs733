@@ -76,14 +76,17 @@ func NewRaftNode(config Config, id int) RaftNode {
 	node.raft_log, _ = log.Open(node.LogDir + "/Log" + strconv.Itoa(config.Id))
 	node.commitCh = make(chan CommitInfo, 100)
 	node.sm = newServer(id) // change to ID
+	node.mutex = &sync.RWMutex{}
+	node.logMutex = &sync.RWMutex{}
+
 	return node
 }
 
 
-
 // Client's message to Raft node
 func (node *RaftNode) Append(data []byte) {
-	node.sm.clientCh <- data
+	fmt.Println("Append")
+	node.sm.clientCh <- AppendMsg{Data:data}
 }
 
 // A channel for client to listen on. What goes into Append must come out of here at some point.
@@ -142,7 +145,7 @@ func (node *RaftNode) process(ev  interface{}) {
 		node.commitCh <- out
 	} else if (t.Name() == "Send") {
 		ev1 := ev.(Send)
-		fmt.Print("Send ", ev1.From, ev1.PeerID)
+		//fmt.Print("Send ", ev1.From, ev1.PeerID)
 		fmt.Println(reflect.TypeOf(ev1.Event).Name())
 		node.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev1.PeerID), Msg: ev1.Event}
 
@@ -168,9 +171,10 @@ func (node *RaftNode) processEvents() {
 		case envMsg := <- node.serverMailBox.Inbox() : // RaftNode gets a message from other nodes in the cluster
 
 			b := envMsg.Msg.(interface{})
-			fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
+			//fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
 			node.sm.netCh <- b
-		case <- node.timer.C :  // Timeout for internal server
+		case <- node.timer.C:  // Timeout for internal server
+			fmt.Println("Timer Timer")
 			node.sm.netCh <- Timeout{}
 		}
 
@@ -185,7 +189,7 @@ func (node *RaftNode) processEvents() {
 			if(nm.Name() == "ActionsCompleted") {
 				break
 			}
-			fmt.Println("Yoo " + nm.Name())
+			//fmt.Println("Yoo " + nm.Name())
 			actions = append(actions, t)
 		}
 
@@ -193,6 +197,8 @@ func (node *RaftNode) processEvents() {
 		for i:=0; i< len(actions); i++ {
 			node.process(actions[i])
 		}
+
+		//combine the above
 	}
 }
 

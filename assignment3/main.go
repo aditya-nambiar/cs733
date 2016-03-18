@@ -371,10 +371,10 @@ func (sm *server) followerLoop() {
 				sm.state = "Candidate"
 
 			default:
-				msg := msg1.(god)
-				sm.termCheck(msg.term)
-				fmt.Println("God called updated " + strconv.Itoa(sm.term))
-				//Do Nothing
+				//msg := msg1.(god)
+				//sm.termCheck(msg.term)
+				//fmt.Println("God called updated " + strconv.Itoa(sm.term))
+				////Do Nothing
 			}
 
 		}
@@ -397,7 +397,7 @@ func (sm *server) candidateLoop() {
 				votereq := VoteReq{Term: sm.term, CandidateID: sm.serverID, LastLogIndex: len(sm.log) - 1, LastLogTerm: sm.getLogTerm(-1)}
 				sm.actionCh <- Send{From: sm.serverID, PeerID: peer, Event: votereq}
 			}
-			fmt.Println("resetting")
+			//fmt.Println("resetting")
 			sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
 			restartElection = false
 		}
@@ -428,12 +428,12 @@ func (sm *server) candidateLoop() {
 
 			case "Timeout":
 				restartElection = true
-				fmt.Println("haha")
+				fmt.Println("Restarting Election")
 
 			default:
-				msg := msg1.(god)
-				sm.termCheck(msg.term)
-				fmt.Println("God called updated " + strconv.Itoa(sm.term))
+				//msg := msg1.(god)
+				//sm.termCheck(msg.term)
+				//fmt.Println("God called updated " + strconv.Itoa(sm.term))
 
 			}
 		}
@@ -452,12 +452,12 @@ func (sm *server) leaderLoop() {
 			return
 
 		case appendMsg := <-sm.clientCh:
-			dt := appendMsg.([]byte)
+			dt := appendMsg.(AppendMsg)
 			fmt.Println("Here")
-			sm.logit(len(sm.log), dt, sm.term)
+			sm.logit(len(sm.log), dt.Data, sm.term)
 			for i:=0; i<sm.num_servers; i++ {
 				if (i != sm.serverID) {
-					logentry := LogEntry{Data: dt, Term: sm.term}
+					logentry := LogEntry{Data: dt.Data, Term: sm.term}
 					logentries := make([]LogEntry, 1)
 					logentries[0] = logentry
 					fmt.Println("Sending", i)
@@ -485,9 +485,9 @@ func (sm *server) leaderLoop() {
 				sm.doLeaderTimedOut()
 
 			default:
-				msg := msg1.(god)
-				sm.termCheck(msg.term)
-				fmt.Println("God called updated " + strconv.Itoa(sm.term))
+				//msg := msg1.(god)
+				//sm.termCheck(msg.term)
+				//fmt.Println("God called updated " + strconv.Itoa(sm.term))
 			} //end of switch
 		}
 	}
