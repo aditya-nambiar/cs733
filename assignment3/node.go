@@ -126,25 +126,25 @@ func (node *RaftNode) Shutdown() {
 func (node *RaftNode) process(ev  interface{}) {
 	t := reflect.TypeOf(ev)
 	if (t.Name() == "Alarm") {
-		node.timer.Reset(time.Duration(ev.(Alarm).time) * time.Millisecond)
+		node.timer.Reset(time.Duration(ev.(Alarm).Time) * time.Millisecond)
 	} else if (t.Name() == "LogStore") {
 		fmt.Println("LogStore ")
 
 		obj := ev.(LogStore)
 		node.logMutex.Lock()
-		node.raft_log.TruncateToEnd(int64(obj.index))
-		node.raft_log.Append(obj.data)
+		node.raft_log.TruncateToEnd(int64(obj.Index))
+		node.raft_log.Append(obj.Data)
 		node.logMutex.Unlock()
 	} else if (t.Name() == "Commit") {
 		obj := ev.(Commit)
 		fmt.Println("Commit ")
-		out := CommitInfo{obj.data, int64(obj.index), obj.err}
+		out := CommitInfo{obj.Data, int64(obj.Index), obj.Err}
 		node.commitCh <- out
 	} else if (t.Name() == "Send") {
 		ev1 := ev.(Send)
-		fmt.Println("Send ", ev1.from, ev1.peerID)
+		fmt.Println("Send ", ev1.From, ev1.PeerID)
 
-		node.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev.(Send).peerID), Msg: ev}
+		node.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev.(Send).PeerID), Msg: ev1.Event}
 
 	}
 }
@@ -161,24 +161,30 @@ func (node *RaftNode) processEvents() {
 		case <- node.shutdown :
 			node.mutex.Unlock()
 			return
-		case appendMsg := <- node.sm.clientCh : // RaftNode gets an Append([]byte) message
+		/*case appendMsg := <- node.sm.clientCh : // RaftNode gets an Append([]byte) message
 			fmt.Println("Here 2")
 			node.sm.clientCh <- appendMsg
-
+		*/
 		case envMsg := <- node.serverMailBox.Inbox() : // RaftNode gets a message from other nodes in the cluster
 			b := envMsg.Msg.(interface{})
+			fmt.Println(reflect.TypeOf(b))
 			node.sm.netCh <- b
 		case <- node.timer.C :  // Timeout for internal server
 			node.sm.netCh <- Timeout{}
 		}
 
+		var e ActionsCompleted
+		node.sm.actionCh <- e
+
+
 		// Collect all actions from the internal server
 		for {
 			t := <- node.sm.actionCh
 			nm := reflect.TypeOf(t)
-			if(nm.Name() == "Event Processed") {
+			if(nm.Name() == "ActionsCompleted") {
 				break
 			}
+			fmt.Println("Yoo")
 			actions = append(actions, t)
 		}
 
@@ -200,6 +206,14 @@ func getLeader(r []RaftNode) *RaftNode {
 }
 //********************************************************************************************
 
+func registerStructs() {
+	gob.Register(LogEntry{})
+	gob.Register(AppendEntriesReq{})
+	gob.Register(AppendEntriesResp{})
+	gob.Register(VoteReq{})
+	gob.Register(VoteResp{})
+	gob.Register(Send{})
+}
 
 var configs cluster.Config = cluster.Config{
 	Peers: []cluster.PeerConfig{
@@ -217,16 +231,18 @@ func makeRafts() []RaftNode {
 		config := Config{configs, i, "$GOPATH/src/github.com/aditya-nambiar/cs733/assignment3/", 500, 50}
 		r = append(r, NewRaftNode(config, i ))
 	}
+	registerStructs()
 	return r
 }
 /**************************************************************/
 
 func main(){
 
-	gob.Register(VoteResp{}) // register a struct name by giving it a dummy object of that name.
-	gob.Register(AppendEntriesReq{}) // register a struct name by giving it a dummy object of that name.
-	gob.Register(AppendEntriesResp{}) // register a struct name by giving it a dummy object of that name.
-	gob.Register(VoteReq{}) // register a struct name by giving it a dummy object of that name.
+	//gob.Register(VoteResp{}) // register a struct name by giving it a dummy object of that name.
+	//gob.Register(AppendEntriesReq{}) // register a struct name by giving it a dummy object of that name.
+	//gob.Register(AppendEntriesResp{}) // register a struct name by giving it a dummy object of that name.
+	//gob.Register(VoteReq{}) // register a struct name by giving it a dummy object of that name.
+	//gob.Register(Send{})
 	//gob.Register(VoteResp{}) // register a struct name by giving it a dummy object of that name.
 	//gob.Register(VoteResp{}) // register a struct name by giving it a dummy object of that name.
 	rafts := makeRafts() // array of []raft.Node
@@ -243,7 +259,7 @@ func main(){
 		select {
 		case ci := <- node.CommitChannel():
 			//if ci.Err != nil {fmt.Println(ci.Err)}
-			if string(ci.Data.data) != "foo" {
+			if string(ci.Data.Data) != "foo" {
 				fmt.Println("Got different data")
 			} else{
 				fmt.Println("Proper Commit")

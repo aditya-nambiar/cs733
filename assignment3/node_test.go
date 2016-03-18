@@ -31,12 +31,12 @@ func TestRaft(t *testing.T) {
 	for _, node := range rafts {
 	select {
 	case ci := <- node.CommitChannel():
-		if string(ci.Data.data) != "foo" {
+		if string(ci.Data.Data) != "foo" {
 		t.Fatal("Got different data")
 		} else{
 		//fmt.Println("Proper Commit ", ci.Index)
 		}
-		fmt.Println(string(ci.Data.data))
+		fmt.Println(string(ci.Data.Data))
 	}
 	}
 
