@@ -4,6 +4,7 @@ import "github.com/cs733-iitb/cluster"
 import "time"
 import "github.com/cs733-iitb/log"
 import "strconv"
+import "fmt"
 import "reflect"
 import "github.com/syndtr/goleveldb/leveldb"
 import (
@@ -67,14 +68,14 @@ type RaftNode struct {
 	electionTimeout time.Duration
 }
 
-func NewRaftNode(config Config) RaftNode {
+func NewRaftNode(config Config, id int) RaftNode {
 	var node RaftNode
 	node.cluster = config.cluster
 	node.serverMailBox, _ = cluster.New(config.Id, node.cluster)
 	node.LogDir = config.LogDir
 	node.raft_log, _ = log.Open(node.LogDir + "/Log" + strconv.Itoa(config.Id))
 	node.commitCh = make(chan CommitInfo, 100)
-	node.sm = newServer(3) // change to ID
+	node.sm = newServer(id) // change to ID
 	return node
 }
 
@@ -122,29 +123,29 @@ func (node *RaftNode) Shutdown() {
 
 
 // Process output events such as Send, Alarm etc.
-func (rn *RaftNode) process(ev  interface{}) {
+func (node *RaftNode) process(ev  interface{}) {
 	t := reflect.TypeOf(ev)
 	if (t.Name() == "Alarm") {
-		rn.timer.Reset(time.Duration(ev.(Alarm).time) * time.Millisecond)
+		node.timer.Reset(time.Duration(ev.(Alarm).time) * time.Millisecond)
 	} else if (t.Name() == "LogStore") {
+		fmt.Println("LogStore ")
+
 		obj := ev.(LogStore)
-		//fmt.Println("Append ", rn.lg.GetLastIndex(), ev.Index, string(ev.Data))
-		rn.logMutex.Lock()
-		rn.raft_log.TruncateToEnd(int64(obj.index))
-		rn.raft_log.Append(obj.data)
-		rn.logMutex.Unlock()
+		node.logMutex.Lock()
+		node.raft_log.TruncateToEnd(int64(obj.index))
+		node.raft_log.Append(obj.data)
+		node.logMutex.Unlock()
 	} else if (t.Name() == "Commit") {
 		obj := ev.(Commit)
+		fmt.Println("Commit ")
 		out := CommitInfo{obj.data, int64(obj.index), obj.err}
-		rn.commitCh <- out
+		node.commitCh <- out
 	} else if (t.Name() == "Send") {
-		//fmt.Println("Send ", ev.to, ev.eventName())
+		ev1 := ev.(Send)
+		fmt.Println("Send ", ev1.from, ev1.peerID)
 
-		//fmt.Println(string(b))
-		// go func(){
-		func(){
-			rn.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev.(Send).peerID), Msg: ev}
-		}()
+		node.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev.(Send).peerID), Msg: ev}
+
 	}
 }
 
@@ -161,6 +162,7 @@ func (node *RaftNode) processEvents() {
 			node.mutex.Unlock()
 			return
 		case appendMsg := <- node.sm.clientCh : // RaftNode gets an Append([]byte) message
+			fmt.Println("Here 2")
 			node.sm.clientCh <- appendMsg
 
 		case envMsg := <- node.serverMailBox.Inbox() : // RaftNode gets a message from other nodes in the cluster
@@ -201,11 +203,11 @@ func getLeader(r []RaftNode) *RaftNode {
 
 var configs cluster.Config = cluster.Config{
 	Peers: []cluster.PeerConfig{
-		{Id: 0, Address: "localhost:8001"},
-		{Id: 1, Address: "localhost:8002"},
-		{Id: 2, Address: "localhost:8003"},
-		{Id: 3, Address: "localhost:8004"},
-		{Id: 4, Address: "localhost:8005"}}}
+		{Id: 1, Address: "localhost:8001"},
+		{Id: 2, Address: "localhost:8002"},
+		{Id: 3, Address: "localhost:8003"},
+		{Id: 4, Address: "localhost:8004"},
+		{Id: 0, Address: "localhost:8005"}}}
 
 //********************************************************************************************
 
@@ -213,7 +215,7 @@ func makeRafts() []RaftNode {
 	var r []RaftNode
 	for i := 0; i < len(configs.Peers); i++ {
 		config := Config{configs, i, "$GOPATH/src/github.com/aditya-nambiar/cs733/assignment3/", 500, 50}
-		r = append(r, NewRaftNode(config))
+		r = append(r, NewRaftNode(config, i ))
 	}
 	return r
 }
@@ -229,25 +231,26 @@ func main(){
 	//gob.Register(VoteResp{}) // register a struct name by giving it a dummy object of that name.
 	rafts := makeRafts() // array of []raft.Node
 	for i:=0; i<5; i++ {
-		//defer rafts[i].raft_log.Close()
+		//defer rafts[i].lg.Close()
 		go rafts[i].processEvents()
 	}
 	time.Sleep(1*time.Second)
 	ldr := getLeader(rafts)
 	ldr.Append([]byte("foo"))
+	fmt.Println(ldr.sm.serverID);
 	time.Sleep(3*time.Second)
-	//for _, node := range rafts {
-	//	select {
-	//	case ci := <- node.CommitChannel():
-	//		if ci.Err != nil {fmt.Println(ci.Err)}
-	//		if string(ci.Data) != "foo" {
-	//			fmt.Println("Got different data")
-	//		} else{
-	//			fmt.Println("Proper Commit")
-	//		}
-	//	//default: fmt.Println("Expected message on all nodes")
-	//	}
-	//}
+	for _, node := range rafts {
+		select {
+		case ci := <- node.CommitChannel():
+			//if ci.Err != nil {fmt.Println(ci.Err)}
+			if string(ci.Data.data) != "foo" {
+				fmt.Println("Got different data")
+			} else{
+				fmt.Println("Proper Commit")
+			}
+		//default: fmt.Println("Expected message on all nodes")
+		}
+	}
 
 }
 

@@ -48,6 +48,7 @@ type server struct {
 	mutex       sync.RWMutex
 	allPeers    []int
 	Stopped     chan bool
+	num_servers int
 }
 
 type Timeout struct {
@@ -155,6 +156,8 @@ func (sm *server) logit(index int, data []byte, term int) {
 		sm.log = append(sm.log, make([]LogEntry, index)...)
 		sm.log[index] = LogEntry{data: data, term: term, committed: false}
 	}
+	sm.actionCh <- LogStore{from : sm.serverID, index: index, data: data}
+
 }
 
 func genRand(min int, max int) int {
@@ -439,8 +442,19 @@ func (sm *server) leaderLoop() {
 			return
 
 		case appendMsg := <-sm.clientCh:
-			t := reflect.TypeOf(appendMsg)
-			fmt.Println(t)
+			dt := appendMsg.(AppendMsg)
+			fmt.Println("Here")
+			sm.logit(len(sm.log), dt.Data, sm.term)
+			for i:=0; i<sm.num_servers; i++ {
+				if (i != sm.serverID) {
+					logentry := LogEntry{data: dt.Data, term: sm.term}
+					logentries := make([]LogEntry, 1)
+					logentries[0] = logentry
+					fmt.Println("Sending", i)
+					appendreq := AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: len(sm.log) - 1, prevLogTerm: sm.getLogTerm(-1), entries: logentries, leaderCommit: sm.commitIndex}
+					sm.actionCh <- Send{from: sm.serverID, peerID: i, event: appendreq}
+				}
+			}
 
 		case msg1 := <-sm.netCh:
 			t := reflect.TypeOf(msg1)
