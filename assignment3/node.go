@@ -142,8 +142,8 @@ func (node *RaftNode) process(ev  interface{}) {
 		node.commitCh <- out
 	} else if (t.Name() == "Send") {
 		ev1 := ev.(Send)
-		fmt.Println("Send ", ev1.From, ev1.PeerID)
-
+		fmt.Print("Send ", ev1.From, ev1.PeerID)
+		fmt.Println(reflect.TypeOf(ev1.Event).Name())
 		node.serverMailBox.Outbox() <- &cluster.Envelope{Pid: int(ev.(Send).PeerID), Msg: ev1.Event}
 
 	}
@@ -166,8 +166,9 @@ func (node *RaftNode) processEvents() {
 			node.sm.clientCh <- appendMsg
 		*/
 		case envMsg := <- node.serverMailBox.Inbox() : // RaftNode gets a message from other nodes in the cluster
+
 			b := envMsg.Msg.(interface{})
-			fmt.Println(reflect.TypeOf(b))
+			fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
 			node.sm.netCh <- b
 		case <- node.timer.C :  // Timeout for internal server
 			node.sm.netCh <- Timeout{}
@@ -184,7 +185,7 @@ func (node *RaftNode) processEvents() {
 			if(nm.Name() == "ActionsCompleted") {
 				break
 			}
-			fmt.Println("Yoo")
+			fmt.Println("Yoo " + nm.Name())
 			actions = append(actions, t)
 		}
 

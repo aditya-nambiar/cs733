@@ -97,6 +97,7 @@ type VoteResp struct {
 }
 
 type AppendEntriesReq struct {
+	From int
 	Term         int //leader's current term
 	LeaderID     int //for follower's to update themselves
 	PrevLogIndex int // index of entry just preceding new ones
@@ -188,7 +189,7 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 				sm.nextIndex[msg.From] = len(sm.log) - 1 // Doubt
 				temp_prevLogIndex := sm.nextIndex[msg.From] - 1
 				temp_prevLogTerm := sm.getLogTerm(temp_prevLogIndex)
-				appendreq := AppendEntriesReq{Term: sm.term, LeaderID: sm.serverID, PrevLogIndex: temp_prevLogIndex, PrevLogTerm: temp_prevLogTerm, Entries: sm.log[sm.nextIndex[msg.From]:], LeaderCommit: sm.commitIndex}
+				appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: temp_prevLogIndex, PrevLogTerm: temp_prevLogTerm, Entries: sm.log[sm.nextIndex[msg.From]:], LeaderCommit: sm.commitIndex}
 				sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: appendreq}
 			}
 
@@ -214,7 +215,7 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 			//sm.nextIndex[msg.from] = max(0, sm.nextIndex[msg.from]-1)
 			var appendreq AppendEntriesReq
 			//appendreq = AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: sm.nextIndex[msg.from], prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
-			appendreq = AppendEntriesReq{Term: sm.term, LeaderID: sm.serverID, PrevLogIndex: lin, PrevLogTerm: sm.log[sm.nextIndex[msg.From]].Term, Entries: sm.log[sm.nextIndex[msg.From]:], LeaderCommit: sm.commitIndex}
+			appendreq = AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: lin, PrevLogTerm: sm.log[sm.nextIndex[msg.From]].Term, Entries: sm.log[sm.nextIndex[msg.From]:], LeaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: appendreq}
 		}
 	}
@@ -252,12 +253,13 @@ func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
 			index = -1
 		}
 		appendresp := AppendEntriesResp{From: sm.serverID, Term: sm.term, MatchIndex: index, Success: check}
-		sm.actionCh <- appendresp
+		sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: appendresp}
 	}
 }
 
 func (sm *server) doVoteReq(msg VoteReq) {
 	sm.termCheck(msg.Term)
+
 
 	if (sm.term == msg.Term) && (sm.votedFor == -1 || sm.votedFor == msg.CandidateID) {
 		if msg.LastLogTerm > sm.getLogTerm(-1) || (msg.LastLogTerm == sm.getLogTerm(-1) && msg.LastLogIndex >= len(sm.log)-1) { // ?? Check id candidate is as uptodate
@@ -265,16 +267,17 @@ func (sm *server) doVoteReq(msg VoteReq) {
 			sm.votedFor = msg.CandidateID
 			sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
 			voteresp := VoteResp{From: sm.serverID, Term: sm.term, VoteGranted: true}
-			sm.actionCh <- voteresp
+			sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: voteresp}
 		}
 	} else { // reject vote:
 		voteresp := VoteResp{From: sm.serverID, Term: sm.term, VoteGranted: false}
-		sm.actionCh <- voteresp
+		sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: voteresp}
 	}
 }
 
 func (sm *server) doVoteResp(msg VoteResp) {
 	sm.termCheck(msg.Term)
+	fmt.Println("Received Vote")
 	if sm.term == msg.Term {
 		sm.voteGranted[msg.From] = msg.VoteGranted
 	}
@@ -292,7 +295,7 @@ func (sm *server) doVoteResp(msg VoteResp) {
 			sm.actionCh <- entryToStore
 			sm.nextIndex[peer] = len(sm.log) // ?? check
 			sm.matchIndex[peer] = -1         // Add this empty entry t ur own log ?
-			appendreq := AppendEntriesReq{Term: sm.term, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
+			appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{From: sm.serverID, PeerID: peer, Event: appendreq}
 		}
 		sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
@@ -310,7 +313,7 @@ func (sm *server) doLeaderTimedOut() {
 			sm.logit(len(sm.log), info, sm.term)
 			entryToStore := LogStore{From: sm.serverID, Index: len(sm.log), Data: info}
 			sm.actionCh <- entryToStore
-			appendreq := AppendEntriesReq{Term: sm.term, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
+			appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{From: sm.serverID, PeerID: peer, Event: appendreq}
 		}
 	}
@@ -458,7 +461,7 @@ func (sm *server) leaderLoop() {
 					logentries := make([]LogEntry, 1)
 					logentries[0] = logentry
 					fmt.Println("Sending", i)
-					appendreq := AppendEntriesReq{Term: sm.term, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
+					appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
 					sm.actionCh <- Send{From: sm.serverID, PeerID: i, Event: appendreq}
 				}
 			}
