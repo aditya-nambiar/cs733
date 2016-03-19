@@ -2,17 +2,17 @@ package main
 
 // ASSUMPTION log starts from 0
 import (
-	"fmt"
 	"math/rand"
 	"reflect"
-	"strconv"
+	//"strconv"
 	"sync"
 	"time"
+	//"fmt"
 )
 
 const (
-	ELECTION_TIMEOUT  = 500 // milliseconds
-	HEARTBEAT_TIMEOUT = 50  // milliseconds
+	ELECTION_TIMEOUT  = 800 // milliseconds
+	HEARTBEAT_TIMEOUT = 80  // milliseconds
 	NUM_SERVERS       = 5
 )
 
@@ -142,14 +142,14 @@ func (sm *server) getLogTerm(i int) int {
 
 func (sm *server) countVotes() int {
 	count := 0
-	for peer, vote := range sm.voteGranted {
+	for _, vote := range sm.voteGranted {
 		if vote {
 			count += 1
-			fmt.Println(peer)
+			//fmt.Println(peer)
 		}
 
 	}
-	fmt.Println("Count" + strconv.Itoa(count))
+	//fmt.Println("Count" + strconv.Itoa(count))
 	return count
 }
 
@@ -160,12 +160,18 @@ func (sm *server) logit(index int, data []byte, term int) {
 		sm.log = append(sm.log, make([]LogEntry, index)...)
 		sm.log[index] = LogEntry{Data: data, Term: term, Committed: false}
 	}
+	//fmt.Println("ID : " + strconv.Itoa(sm.serverID) + " || data : " + string(data[:]) + " | index " + strconv.Itoa(index) )
 	sm.actionCh <- LogStore{From : sm.serverID, Index: index, Data: data}
 
 }
 
+var  callonce = 1
 func genRand(min int, max int) int {
-	rand.Seed(time.Now().Unix())
+	if callonce == 1 {
+		rand.Seed( time.Now().UTC().UnixNano())
+		callonce++
+
+	}
 	return rand.Intn(max-min) + min
 }
 func (sm *server) termCheck(mterm int) {
@@ -174,9 +180,17 @@ func (sm *server) termCheck(mterm int) {
 		sm.votedFor = -1
 		sm.voteGranted = make(map[int]bool)
 		sm.state = "Follower"
+		sm.leaderID = -1
 	}
 }
 
+func (sm * server) Shutdown(){
+ sm.Stopped <- true
+	close(sm.clientCh)
+	close(sm.actionCh)
+	close(sm.Stopped)
+
+}
 func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 	sm.termCheck(msg.Term)
 
@@ -189,19 +203,25 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 				sm.nextIndex[msg.From] = len(sm.log) - 1 // Doubt
 				temp_prevLogIndex := sm.nextIndex[msg.From] - 1
 				temp_prevLogTerm := sm.getLogTerm(temp_prevLogIndex)
+				//fmt.Println("Sending AREQ3 to " + strconv.Itoa(msg.From))
+
 				appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: temp_prevLogIndex, PrevLogTerm: temp_prevLogTerm, Entries: sm.log[sm.nextIndex[msg.From]:], LeaderCommit: sm.commitIndex}
 				sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: appendreq}
 			}
 
-			cnt := 0
+			cnt := 1
 			for _, peer := range sm.allPeers {
-				if sm.matchIndex[peer] > sm.commitIndex {
+				if peer != sm.serverID &&  sm.matchIndex[peer] > sm.commitIndex {
 					cnt += 1
 				}
+				//fmt.Println("Commit status " + strconv.Itoa(sm.commitIndex) + "Peer " + strconv.Itoa(peer) + " " + strconv.Itoa(sm.matchIndex[peer]))
 			}
+
 			if cnt > NUM_SERVERS/2 {
 				sm.commitIndex++
-				sm.actionCh <- Commit{From: sm.serverID, Data: sm.log[sm.commitIndex-1], Err: ""}
+				//fmt.Println(" Commiting data 215 :: " + strconv.Itoa(sm.commitIndex)+ " " + string(sm.log[sm.commitIndex].Data[:]))
+
+				sm.actionCh <- Commit{From: sm.serverID, Data: sm.log[sm.commitIndex], Err: ""}
 			}
 		} else {
 			var lin int
@@ -213,8 +233,9 @@ func (sm *server) doAppendEntriesResp(msg AppendEntriesResp) {
 				sm.nextIndex[msg.From] = lin
 			}
 			//sm.nextIndex[msg.from] = max(0, sm.nextIndex[msg.from]-1)
+			//fmt.Println("Sending AREQ4 to " + strconv.Itoa(msg.From))
+
 			var appendreq AppendEntriesReq
-			//appendreq = AppendEntriesReq{term: sm.term, leaderID: sm.serverID, prevLogIndex: sm.nextIndex[msg.from], prevLogTerm: sm.log[sm.nextIndex[msg.from]].term, entries: sm.log[sm.nextIndex[msg.from]:], leaderCommit: sm.commitIndex}
 			appendreq = AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: lin, PrevLogTerm: sm.log[sm.nextIndex[msg.From]].Term, Entries: sm.log[sm.nextIndex[msg.From]:], LeaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: appendreq}
 		}
@@ -228,30 +249,52 @@ func (sm *server) doAppendEntriesReq(msg AppendEntriesReq) {
 		appendresp := AppendEntriesResp{From: sm.serverID, Term: sm.term, MatchIndex: -1, Success: false}
 		sm.actionCh <- appendresp
 	} else {
-		sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
-		sm.leaderID = msg.LeaderID
+		sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT*2, ELECTION_TIMEOUT*3)}
 		sm.state = "Follower"
 		var index int
 		check := false
-		if msg.PrevLogIndex == -1 || (msg.PrevLogIndex <= len(sm.log)-1 && sm.getLogTerm(msg.PrevLogIndex) == msg.PrevLogTerm) {
+
+		if ( len(msg.Entries[0].Data) >0 &&  string(msg.Entries[0].Data[:1]) == "^"){
+			index = msg.PrevLogIndex +1
+			var old_val = sm.commitIndex
+			sm.commitIndex = min(msg.LeaderCommit, index)
+			//fmt.Println("Vals " + strconv.Itoa(msg.LeaderCommit) + " " + strconv.Itoa(index))
+
+			//fmt.Println("Comparing " + strconv.Itoa(old_val) + " " + strconv.Itoa(sm.commitIndex))
+			if ( old_val < sm.commitIndex) {
+				//fmt.Println(" Commiting data 256 " + string(sm.log[sm.commitIndex].Data[:]))
+				sm.actionCh <- Commit{From: sm.serverID, Data: sm.log[sm.commitIndex], Err: ""}
+			}
+			return
+		}
+		if msg.PrevLogIndex == -1 || (msg.PrevLogIndex <= len(sm.log)-2 && sm.getLogTerm(msg.PrevLogIndex) == msg.PrevLogTerm) {
 			index = msg.PrevLogIndex
 			check = true
+			//fmt.Println("Prevlogindex " + strconv.Itoa(msg.PrevLogIndex) + " " + strconv.Itoa(sm.serverID))
 			for j := 0; j < len(msg.Entries); j += 1 {
 				index += 1
-				fmt.Println("Length of log" + string(len(sm.log)))
-				if index >= len(sm.log) || sm.getLogTerm(index) != msg.Entries[j].Term {
+				//fmt.Println("Length of log " + strconv.Itoa(len(sm.log)))
+				if (index >= len(sm.log) || sm.getLogTerm(index) != msg.Entries[j].Term ) {
 
 					sm.logit(index, msg.Entries[j].Data, msg.Entries[j].Term)
 
-					entryToStore := LogStore{From: sm.serverID, Index: index, Data: msg.Entries[j].Data}
-					sm.actionCh <- entryToStore
+					//entryToStore := LogStore{From: sm.serverID, Index: index, Data: msg.Entries[j].Data}
+					//sm.actionCh <- entryToStore
 
 				}
 			}
+			var old_val = sm.commitIndex
 			sm.commitIndex = min(msg.LeaderCommit, index)
+			if ( old_val < sm.commitIndex) {
+				//fmt.Println(" Commiting data 280 " + string(sm.log[sm.commitIndex].Data[:]))
+
+				sm.actionCh <- Commit{From: sm.serverID, Data: sm.log[sm.commitIndex], Err: ""}
+			}
+
 		} else {
 			index = -1
 		}
+		//fmt.Println("From " + strconv.Itoa(sm.serverID) + " index : " + strconv.Itoa(index))
 		appendresp := AppendEntriesResp{From: sm.serverID, Term: sm.term, MatchIndex: index, Success: check}
 		sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: appendresp}
 	}
@@ -267,7 +310,8 @@ func (sm *server) doVoteReq(msg VoteReq) {
 			sm.votedFor = msg.CandidateID
 			sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
 			voteresp := VoteResp{From: sm.serverID, Term: sm.term, VoteGranted: true}
-			sm.actionCh <- Send{From: sm.serverID, PeerID: msg.From, Event: voteresp}
+			//fmt.Println("Votegranted to " + strconv.Itoa(msg.CandidateID) + " By " + strconv.Itoa(sm.serverID))
+			sm.actionCh <- Send{From: sm.serverID, PeerID: msg.CandidateID, Event: voteresp}
 		}
 	} else { // reject vote:
 		voteresp := VoteResp{From: sm.serverID, Term: sm.term, VoteGranted: false}
@@ -277,27 +321,31 @@ func (sm *server) doVoteReq(msg VoteReq) {
 
 func (sm *server) doVoteResp(msg VoteResp) {
 	sm.termCheck(msg.Term)
-	fmt.Println("Received Vote")
+	//fmt.Println("Received Vote")
 	if sm.term == msg.Term {
 		sm.voteGranted[msg.From] = msg.VoteGranted
 	}
 	if sm.countVotes() > NUM_SERVERS/2 {
 		sm.state = "Leader"
-		fmt.Println("LeaderElected")
+		//fmt.Println("LeaderElected " +strconv.Itoa(sm.serverID))
 		sm.leaderID = sm.serverID
+		info := []byte("^LeaderElected")
+		logentries := make([]LogEntry, 1)
+		logentry := LogEntry{Data: info, Term: sm.term}
+		logentries[0] = logentry
+		//sm.logit(len(sm.log), info, sm.term)
+		//entryToStore := LogStore{From: sm.serverID, Index: len(sm.log), Data: info}
+		//sm.actionCh <- entryToStore
 		for _, peer := range sm.allPeers { // send heartbeats to all servers and establish territory
-			info := make([]byte, 1)
-			logentries := make([]LogEntry, 1)
-			logentry := LogEntry{Data: info, Term: sm.term}
-			logentries[0] = logentry
-			sm.logit(len(sm.log), info, sm.term)
-			entryToStore := LogStore{From: sm.serverID, Index: len(sm.log), Data: info}
-			sm.actionCh <- entryToStore
-			sm.nextIndex[peer] = len(sm.log) // ?? check
-			fmt.Println("Sending empty appends ############")
-			sm.matchIndex[peer] = -1         // Add this empty entry t ur own log ?
-			appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
-			sm.actionCh <- Send{From: sm.serverID, PeerID: peer, Event: appendreq}
+			if (peer != sm.serverID) {
+				sm.nextIndex[peer] = len(sm.log) // ?? check
+				//fmt.Println("Sending empty appends ############")
+				sm.matchIndex[peer] = -1         // Add this empty entry t ur own log ?
+				//fmt.Println("Sending AREQ1 to " + strconv.Itoa(peer))
+
+				appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
+				sm.actionCh <- Send{From: sm.serverID, PeerID: peer, Event: appendreq}
+			}
 		}
 		sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
 	}
@@ -305,19 +353,21 @@ func (sm *server) doVoteResp(msg VoteResp) {
 }
 
 func (sm *server) doLeaderTimedOut() {
+	info := []byte("^LeaderTimeout")
+	logentries := make([]LogEntry, 1)
+	logentry := LogEntry{Data: info, Term: sm.term}
+	logentries[0] = logentry
+	//sm.logit(len(sm.log), info, sm.term)
+	//entryToStore := LogStore{From: sm.serverID, Index: len(sm.log), Data: info}
+	//sm.actionCh <- entryToStore
 	for _, peer := range sm.allPeers {
 		if peer != sm.serverID {
-			info := make([]byte, 1)
-			logentries := make([]LogEntry, 1)
-			logentry := LogEntry{Data: info, Term: sm.term}
-			logentries[0] = logentry
-			sm.logit(len(sm.log), info, sm.term)
-			entryToStore := LogStore{From: sm.serverID, Index: len(sm.log), Data: info}
-			sm.actionCh <- entryToStore
+			//fmt.Println("Sending AREQ to " + strconv.Itoa(peer))
 			appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
 			sm.actionCh <- Send{From: sm.serverID, PeerID: peer, Event: appendreq}
 		}
 	}
+	//fmt.Print(".")
 	sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(HEARTBEAT_TIMEOUT, HEARTBEAT_TIMEOUT*2)}
 }
 
@@ -347,6 +397,7 @@ func (sm *server) followerLoop() {
 	//Alarm(time.now() + rand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2))
 	//alarm :=
 	sm.actionCh <- Alarm{From: sm.serverID, Time: genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)}
+	sm.leaderID = -1
 
 	for sm.state == "Follower" {
 		select {
@@ -392,6 +443,7 @@ func (sm *server) candidateLoop() {
 			sm.term++
 			sm.votedFor = sm.serverID
 			sm.voteGranted = make(map[int]bool)
+			//fmt.Println("Restarting Election by " + strconv.Itoa(sm.serverID) + "term : " + strconv.Itoa(sm.term))
 			sm.voteGranted[sm.serverID] = true
 			// Send RequestVote RPCs to all other servers.
 			for _, peer := range sm.allPeers {
@@ -428,8 +480,10 @@ func (sm *server) candidateLoop() {
 				sm.doAppendEntriesReq(msg)
 
 			case "Timeout":
-				restartElection = true
-				fmt.Println("Restarting Election")
+				if ( sm.state == "Candidate") {
+					restartElection = true
+				}
+
 
 			default:
 				//msg := msg1.(god)
@@ -443,29 +497,37 @@ func (sm *server) candidateLoop() {
 
 // The event loop that is run when the server is in a Leader state.
 func (sm *server) leaderLoop() {
+	//fmt.Println("I am a leader " + strconv.Itoa(sm.serverID))
+	sm.leaderID = sm.serverID
 
 	for sm.state == "Leader" {
 
-		fmt.Println("I am a leader")
 		select {
 		case <-sm.Stopped:
 			sm.state = "Stopped"
 			return
 
 		case appendMsg := <-sm.clientCh:
+			if appendMsg == nil {
+				return
+			}
 			dt := appendMsg.(AppendMsg)
-			fmt.Println("Here")
-			sm.logit(len(sm.log), dt.Data, sm.term)
+
+			//fmt.Println("Got message from client")
 			for i:=0; i<sm.num_servers; i++ {
 				if (i != sm.serverID) {
 					logentry := LogEntry{Data: dt.Data, Term: sm.term}
 					logentries := make([]LogEntry, 1)
 					logentries[0] = logentry
-					fmt.Println("Sending", i)
+					//fmt.Println("Sending", i)
+					//fmt.Println("Sending AREQ2 to " + strconv.Itoa(i))
+
 					appendreq := AppendEntriesReq{Term: sm.term, From: sm.serverID, LeaderID: sm.serverID, PrevLogIndex: len(sm.log) - 1, PrevLogTerm: sm.getLogTerm(-1), Entries: logentries, LeaderCommit: sm.commitIndex}
 					sm.actionCh <- Send{From: sm.serverID, PeerID: i, Event: appendreq}
 				}
 			}
+			sm.logit(len(sm.log), dt.Data, sm.term)
+
 
 		case msg1 := <-sm.netCh:
 			t := reflect.TypeOf(msg1)
@@ -518,6 +580,9 @@ func newServer(id int,l int ) *server {
 	sm.log = logentries
 	sm.num_servers = l
 	//var f []int
-	sm.allPeers = []int{0, 1,2,3, 4} // Change this
+	sm.allPeers = make([]int, 5)
+	for j:= 0; j<l; j++{
+		sm.allPeers[j] = j
+	}
 	return &sm
 }
