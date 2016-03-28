@@ -8,9 +8,9 @@ import "fmt"
 import "reflect"
 import "github.com/syndtr/goleveldb/leveldb"
 import (
-	"sync"
 	"encoding/gob"
 	"github.com/cs733-iitb/cluster/mock"
+	"sync"
 )
 
 type Node interface {
@@ -34,15 +34,15 @@ type Node interface {
 // Index is valid only if err == nil
 type CommitInfo struct {
 	Data  LogEntry
-	Index int64 // or int .. whatever you have in your code
+	Index int64  // or int .. whatever you have in your code
 	Err   string // Err can be errred
 }
 
 // This is an example structure for Config .. change it to your convenience.
 type Config struct {
 	cluster          cluster.Config // Information about all servers, including this.
-	Id               int         // this node's id. One of the cluster's entries should match.
-	LogDir           string      // Log file directory for this node
+	Id               int            // this node's id. One of the cluster's entries should match.
+	LogDir           string         // Log file directory for this node
 	ElectionTimeout  int
 	HeartbeatTimeout int
 }
@@ -54,19 +54,19 @@ type NetConfig struct {
 }
 
 type RaftNode struct {
-	sm          * server
-	timer       *time.Timer
-	commitCh    chan CommitInfo
-	shutdown      chan bool
-	cluster     cluster.Config
-	serverMailBox  cluster.Server
-	LogDir      string // Log file directory for this node
-	raft_log          *log.Log
+	sm              *server
+	timer           *time.Timer
+	commitCh        chan CommitInfo
+	shutdown        chan bool
+	cluster         cluster.Config
+	serverMailBox   cluster.Server
+	LogDir          string // Log file directory for this node
+	raft_log        *log.Log
 	consistentStore *leveldb.DB
-	mutex1	 *sync.RWMutex // Ensure integrity of state machine fields
-	mutex2	 *sync.RWMutex // Ensure integrity of state machine fields
+	mutex1          *sync.RWMutex // Ensure integrity of state machine fields
+	mutex2          *sync.RWMutex // Ensure integrity of state machine fields
 
-	logMutex *sync.RWMutex	// Ensure correctness of log
+	logMutex        *sync.RWMutex // Ensure correctness of log
 	electionTimeout time.Duration
 }
 
@@ -74,7 +74,7 @@ func NewRaftNode(config Config, id int) RaftNode {
 	var node RaftNode
 	node.cluster = config.cluster
 	node.LogDir = config.LogDir
-	node.raft_log, _ = log.Open(node.LogDir + "/Log"+strconv.Itoa(genRand(1,1000)) + strconv.Itoa(config.Id))
+	node.raft_log, _ = log.Open(node.LogDir + "/Log" + strconv.Itoa(genRand(1, 1000)) + strconv.Itoa(config.Id))
 	node.commitCh = make(chan CommitInfo, 100)
 	node.shutdown = make(chan bool, 5)
 	node.sm = newServer(id, len(configs.Peers)) // change to ID
@@ -86,11 +86,10 @@ func NewRaftNode(config Config, id int) RaftNode {
 	return node
 }
 
-
 // Client's message to Raft node
 func (node *RaftNode) Append(data []byte) {
 	//fmt.Println("Append")
-	node.sm.clientCh <- AppendMsg{Data:data}
+	node.sm.clientCh <- AppendMsg{Data: data}
 }
 
 // A channel for client to listen on. What goes into Append must come out of here at some point.
@@ -109,12 +108,12 @@ func (node *RaftNode) CommittedIndex() int {
 
 // Returns the data at a log index, or an error.
 
-func (node *RaftNode) Get(index int64) ( []byte, error) {
+func (node *RaftNode) Get(index int64) ([]byte, error) {
 	node.logMutex.RLock()
 
 	c, err := node.raft_log.Get(index)
 	node.logMutex.RUnlock()
-	return c, err
+	return c.([]byte), err
 }
 
 func (node *RaftNode) Id() int {
@@ -136,7 +135,7 @@ func (node *RaftNode) Shutdown() {
 	db, _ := leveldb.OpenFile("$GOPATH/src/github.com/aditya-nambiar/cs733/assignment3/consistentStore", nil)
 	defer db.Close()
 
-	db.Put([]byte("Term:" +strconv.Itoa(node.sm.serverID)), []byte(strconv.Itoa(node.sm.term)), nil)
+	db.Put([]byte("Term:"+strconv.Itoa(node.sm.serverID)), []byte(strconv.Itoa(node.sm.term)), nil)
 	db.Put([]byte("VotedFor:"+strconv.Itoa(node.sm.serverID)), []byte(strconv.Itoa(node.sm.votedFor)), nil)
 
 	close(node.commitCh)
@@ -147,15 +146,13 @@ func (node *RaftNode) Shutdown() {
 
 //********************************************************************************************
 
-
-
 // Process output events such as Send, Alarm etc.
-func (node *RaftNode) process(ev  interface{}) {
+func (node *RaftNode) process(ev interface{}) {
 	t := reflect.TypeOf(ev)
-	if (t.Name() == "Alarm") {
+	if t.Name() == "Alarm" {
 		node.timer.Reset(time.Duration(ev.(Alarm).Time) * time.Millisecond)
 		//fmt.Println("Reset alarm for " + strconv.Itoa(node.sm.serverID))
-	} else if (t.Name() == "LogStore") {
+	} else if t.Name() == "LogStore" {
 		obj := ev.(LogStore)
 
 		//fmt.Println("LogStore by " + strconv.Itoa(node.sm.serverID) + "With data :: "+ string(obj.Data[:]))
@@ -165,12 +162,12 @@ func (node *RaftNode) process(ev  interface{}) {
 		node.raft_log.Append(obj.Data)
 		node.logMutex.Unlock()
 
-	} else if (t.Name() == "Commit") {
+	} else if t.Name() == "Commit" {
 		obj := ev.(Commit)
 		//fmt.Println("Commit by " + strconv.Itoa(node.sm.serverID) +" with data :: " + string(obj.Data.Data[:]))
 		out := CommitInfo{obj.Data, int64(obj.Index), obj.Err}
 		node.commitCh <- out
-	} else if (t.Name() == "Send") {
+	} else if t.Name() == "Send" {
 		ev1 := ev.(Send)
 		//fmt.Println(" Sending From " + strconv.Itoa(ev1.From))
 		//fmt.Print("Send ", ev1.From, ev1.PeerID)
@@ -180,27 +177,27 @@ func (node *RaftNode) process(ev  interface{}) {
 	}
 }
 
-func (node *RaftNode)listening_events(){
+func (node *RaftNode) listening_events() {
 	node.mutex1.Lock()
 
 	for {
 
 		select {
 		case <-node.shutdown:
-		node.mutex1.Unlock()
+			node.mutex1.Unlock()
 			return
 		/*case appendMsg := <- node.sm.clientCh : // RaftNode gets an Append([]byte) message
-			fmt.Println("Here 2")
-			node.sm.clientCh <- appendMsg
+		fmt.Println("Here 2")
+		node.sm.clientCh <- appendMsg
 		*/
 		case envMsg := <-node.serverMailBox.Inbox():
-		// RaftNode gets a message from other nodes in the cluster
+			// RaftNode gets a message from other nodes in the cluster
 
 			b := envMsg.Msg.(interface{})
-		//fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
+			//fmt.Println("Inbox " + string(envMsg.Pid)+ " "+ reflect.TypeOf(b).Name())
 			node.sm.netCh <- b
 		case <-node.timer.C:
-		// Timeout for internal server
+			// Timeout for internal server
 			//fmt.Println("Timer Timer")
 			node.sm.netCh <- Timeout{}
 		}
@@ -208,36 +205,32 @@ func (node *RaftNode)listening_events(){
 	}
 	node.mutex1.Unlock()
 
-
 }
 
-func (node *RaftNode)doing_actions(){
+func (node *RaftNode) doing_actions() {
 	node.mutex2.Lock()
 
 	var e ActionsCompleted
 	node.sm.actionCh <- e
 	//var actions []interface{}
 
-
 	// Collect all actions from the internal server
 	for {
 		select {
-		case t := <- node.sm.actionCh:
+		case t := <-node.sm.actionCh:
 
 			go node.process(t)
-		case  <- node.shutdown:
+		case <-node.shutdown:
 			node.mutex2.Unlock()
 
 			return
 
 		}
 
-
 		//actions = append(actions, t)
 	}
 
 	node.mutex2.Unlock()
-
 
 }
 
@@ -246,7 +239,7 @@ func (node *RaftNode) processEvents() {
 	genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)
 	var rnd = genRand(0, ELECTION_TIMEOUT*2)
 	//fmt.Println(strconv.Itoa(rnd) + " " + strconv.Itoa(node.sm.serverID))
-	node.timer = time.NewTimer(time.Duration(rnd)* time.Millisecond )
+	node.timer = time.NewTimer(time.Duration(rnd) * time.Millisecond)
 	go node.listening_events()
 	go node.doing_actions()
 }
@@ -254,12 +247,13 @@ func (node *RaftNode) processEvents() {
 // Returns leader of cluster if present, nil otherwise
 func getLeader(r []RaftNode) *RaftNode {
 	for _, node := range r {
-		if(node.sm.leaderID != -1) {
+		if node.sm.leaderID != -1 {
 			return &node
 		}
 	}
 	return nil
 }
+
 //********************************************************************************************
 
 func registerStructs() {
@@ -281,15 +275,16 @@ var configs cluster.Config = cluster.Config{
 
 //********************************************************************************************
 // Generates a mock cluster of 5 raft nodes
-func makeMockRafts() ([]RaftNode, *mock.MockCluster){
-
+func makeMockRafts() ([]RaftNode, *mock.MockCluster) {
 
 	// init the communication layer.
 	// Note, mock cluster doesn't need IP addresses. Only Ids
-	clconfig := cluster.Config{Peers:[]cluster.PeerConfig{
-		{Id:0}, {Id:1}, {Id:2}, {Id:3}, {Id:4}}}
+	clconfig := cluster.Config{Peers: []cluster.PeerConfig{
+		{Id: 0}, {Id: 1}, {Id: 2}, {Id: 3}, {Id: 4}}}
 	cluster, err := mock.NewCluster(clconfig)
-	if err != nil {return nil, cluster}
+	if err != nil {
+		return nil, cluster
+	}
 
 	// init the raft node layer
 	nodes := make([]RaftNode, len(clconfig.Peers))
@@ -312,39 +307,39 @@ func makeRafts() []RaftNode {
 	var r []RaftNode
 	for i := 0; i < len(configs.Peers); i++ {
 		config := Config{configs, i, "$GOPATH/src/github.com/aditya-nambiar/cs733/assignment3/", 500, 50}
-		r = append(r, NewRaftNode(config, i ))
+		r = append(r, NewRaftNode(config, i))
 		r[i].serverMailBox, _ = cluster.New(config.Id, config.cluster)
 
 	}
 	registerStructs()
 	return r
 }
+
 /**************************************************************/
 
-func main(){
+func main() {
 
 	rafts := makeRafts() // array of []raft.Node
-	for i:=0; i<5; i++ {
+	for i := 0; i < 5; i++ {
 		//defer rafts[i].lg.Close()
 		go rafts[i].processEvents()
 	}
-	time.Sleep(1*time.Second)
+	time.Sleep(1 * time.Second)
 	ldr := getLeader(rafts)
 	ldr.Append([]byte("foo"))
-	fmt.Println(ldr.sm.serverID);
-	time.Sleep(3*time.Second)
+	fmt.Println(ldr.sm.serverID)
+	time.Sleep(3 * time.Second)
 	for _, node := range rafts {
 		select {
-		case ci := <- node.CommitChannel():
+		case ci := <-node.CommitChannel():
 			//if ci.Err != nil {fmt.Println(ci.Err)}
 			if string(ci.Data.Data) != "foo" {
 				fmt.Println("Got different data")
-			} else{
+			} else {
 				fmt.Println("Proper Commit")
 			}
-		//default: fmt.Println("Expected message on all nodes")
+			//default: fmt.Println("Expected message on all nodes")
 		}
 	}
 
 }
-
