@@ -1,0 +1,6 @@
+=============== Apr 29, 2016 (IST) ===============
+03:54:00.169414 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+03:54:00.170555 db@open opening
+03:54:00.171285 version@stat F·[] S·0B[] Sc·[]
+03:54:00.172207 db@janitor F·2 G·0
+03:54:00.172278 db@open done T·1.682646ms

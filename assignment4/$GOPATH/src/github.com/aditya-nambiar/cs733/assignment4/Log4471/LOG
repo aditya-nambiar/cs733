@@ -1,0 +1,35 @@
+=============== Apr 29, 2016 (IST) ===============
+13:22:20.158311 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+13:22:20.159363 db@open opening
+13:22:20.160028 version@stat F·[] S·0B[] Sc·[]
+13:22:20.161020 db@janitor F·2 G·0
+13:22:20.161164 db@open done T·1.758152ms
+13:22:30.521992 transaction@flush created L0@2 N·1 S·119B "las..dex,v1":"las..dex,v1"
+13:22:30.531085 version@stat F·[1] S·119B[119B] Sc·[0.25]
+13:22:30.542850 transaction@flush created L0@3 N·2 S·383B "1,v2":"las..dex,v3"
+13:22:30.542912 version@stat F·[2] S·502B[502B] Sc·[0.50]
+=============== Apr 29, 2016 (IST) ===============
+14:57:43.377177 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+14:57:43.405083 version@stat F·[2] S·502B[502B] Sc·[0.50]
+14:57:43.405128 db@open opening
+14:57:43.405314 journal@recovery F·1
+14:57:43.405723 journal@recovery recovering @1
+14:57:43.408554 version@stat F·[2] S·502B[502B] Sc·[0.50]
+14:57:43.410109 db@janitor F·4 G·0
+14:57:43.410172 db@open done T·5.021581ms
+14:57:53.412508 transaction@flush created L0@6 N·2 S·130B "1,d4":"las..dex,v5"
+14:57:53.412553 version@stat F·[3] S·632B[632B] Sc·[0.75]
+14:57:53.414875 transaction@flush created L0@7 N·2 S·377B "1,v6":"las..dex,v7"
+14:57:53.415091 version@stat F·[4] S·1009B[1009B] Sc·[1.00]
+14:57:53.415603 table@compaction L0·4 -> L1·0 S·1009B Q·7
+14:57:53.416512 table@build created L1@8 N·2 S·377B "1,v6":"las..dex,v7"
+14:57:53.416590 version@stat F·[0 1] S·377B[0B 377B] Sc·[0.00 0.00]
+14:57:53.416989 table@compaction committed F-3 S-632B Ke·0 D·5 T·1.334259ms
+14:57:53.417202 table@remove removed @7
+14:57:53.417355 table@remove removed @6
+14:57:53.417489 table@remove removed @3
+14:57:53.417619 table@remove removed @2
+14:57:53.420996 transaction@flush created L0@9 N·1 S·122B "las..dex,v8":"las..dex,v8"
+14:57:53.421040 version@stat F·[1 1] S·499B[122B 377B] Sc·[0.25 0.00]
+14:57:53.423500 transaction@flush created L0@10 N·2 S·377B "2,v9":"las..dex,v10"
+14:57:53.423559 version@stat F·[2 1] S·876B[499B 377B] Sc·[0.50 0.00]

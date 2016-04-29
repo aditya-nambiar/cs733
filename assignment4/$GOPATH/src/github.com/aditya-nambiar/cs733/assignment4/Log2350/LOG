@@ -1,0 +1,10 @@
+=============== Apr 29, 2016 (IST) ===============
+15:08:02.584426 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+15:08:02.585480 db@open opening
+15:08:02.586157 version@stat F·[] S·0B[] Sc·[]
+15:08:02.586989 db@janitor F·2 G·0
+15:08:02.587043 db@open done T·1.53495ms
+15:08:12.608828 transaction@flush created L0@2 N·1 S·119B "las..dex,v1":"las..dex,v1"
+15:08:12.608915 version@stat F·[1] S·119B[119B] Sc·[0.25]
+15:08:12.610863 transaction@flush created L0@3 N·2 S·383B "1,v2":"las..dex,v3"
+15:08:12.611031 version@stat F·[2] S·502B[502B] Sc·[0.50]

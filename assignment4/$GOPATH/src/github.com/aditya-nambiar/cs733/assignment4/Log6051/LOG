@@ -1,0 +1,22 @@
+=============== Apr 29, 2016 (IST) ===============
+13:46:02.267875 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+13:46:02.270732 db@open opening
+13:46:02.271531 version@stat F·[] S·0B[] Sc·[]
+13:46:02.275829 db@janitor F·2 G·0
+13:46:02.275919 db@open done T·5.155864ms
+13:46:12.269064 transaction@flush created L0@2 N·1 S·119B "las..dex,v1":"las..dex,v1"
+13:46:12.269125 version@stat F·[1] S·119B[119B] Sc·[0.25]
+13:46:12.270988 transaction@flush created L0@3 N·2 S·377B "1,v2":"las..dex,v3"
+13:46:12.271015 version@stat F·[2] S·496B[496B] Sc·[0.50]
+13:46:12.315756 transaction@flush created L0@4 N·1 S·122B "las..dex,v4":"las..dex,v4"
+13:46:12.315803 version@stat F·[3] S·618B[618B] Sc·[0.75]
+13:46:12.317771 transaction@flush created L0@5 N·2 S·377B "2,v5":"las..dex,v6"
+13:46:12.317807 version@stat F·[4] S·995B[995B] Sc·[1.00]
+13:46:12.318865 table@compaction L0·4 -> L1·0 S·995B Q·6
+13:46:12.320238 table@build created L1@6 N·3 S·406B "1,v2":"las..dex,v6"
+13:46:12.320294 version@stat F·[0 1] S·406B[0B 406B] Sc·[0.00 0.00]
+13:46:12.349121 table@compaction committed F-3 S-589B Ke·0 D·3 T·30.147118ms
+13:46:12.349542 table@remove removed @5
+13:46:12.349874 table@remove removed @4
+13:46:12.350163 table@remove removed @3
+13:46:12.350456 table@remove removed @2

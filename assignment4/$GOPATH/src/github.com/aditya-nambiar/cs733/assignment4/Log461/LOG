@@ -1,0 +1,15 @@
+=============== Apr 29, 2016 (IST) ===============
+01:19:21.064815 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+01:19:21.065849 db@open opening
+01:19:21.066515 version@stat F·[] S·0B[] Sc·[]
+01:19:21.067781 db@janitor F·2 G·0
+01:19:21.067827 db@open done T·1.949586ms
+=============== Apr 29, 2016 (IST) ===============
+02:41:21.883579 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+02:41:21.967514 version@stat F·[] S·0B[] Sc·[]
+02:41:21.967552 db@open opening
+02:41:21.967654 journal@recovery F·1
+02:41:21.968000 journal@recovery recovering @1
+02:41:21.972584 version@stat F·[] S·0B[] Sc·[]
+02:41:22.012874 db@janitor F·2 G·0
+02:41:22.012932 db@open done T·45.355346ms
