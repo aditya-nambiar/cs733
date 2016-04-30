@@ -27,6 +27,7 @@ func (fi *FileInfo) cancelTimer() {
 }
 
 func ProcessMsg(fs *FS,gversion *int,msg *Msg) *Msg {
+	//fmt.Println("Processing " + msg.Filename)
 	switch msg.Kind {
 	case 'r':
 		return processRead(fs, gversion,msg)
@@ -74,7 +75,7 @@ func internalWrite(fs *FS,gversion *int,msg *Msg) *Msg {
 	} else {
 		fi = &FileInfo{}
 	}
-
+	//fmt.Println("File Gettting written " + msg.Filename)
 	*gversion += 1
 	fi.filename = msg.Filename
 	fi.contents = msg.Contents

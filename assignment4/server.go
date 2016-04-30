@@ -24,6 +24,8 @@ type Server struct {
 	rn            RaftNode
 	fileMap       *fs.FS
 	gversion      int
+	ID int
+	prevLogIndexProcessed int
 }
 
 type FileSystemConfig struct {
@@ -47,6 +49,7 @@ var num_nodes = 5
 
 
 var fileServer []*exec.Cmd
+var servs []*Server
 
 func StartServer(i int, restartflag string) {
 	fileServer[i-1] = exec.Command("./server", strconv.Itoa(i-1), restartflag)
@@ -56,11 +59,12 @@ func StartServer(i int, restartflag string) {
 }
 
 func StartAllServerProcess() {
+	servs = make([]*Server, num_nodes)
 	fileServer = make([]*exec.Cmd, num_nodes)
 	registerStructs()
 	for i := 1; i <= len(configs_fs.Peers); i++ {
-		//os.RemoveAll("myLogDir" + strconv.Itoa(i) + "/logfile")
-		//os.RemoveAll("myStateDir" + strconv.Itoa(i) + "/mystate")
+		os.RemoveAll("myLogDir" + strconv.Itoa(i) + "/logfile")
+		os.RemoveAll("myStateDir" + strconv.Itoa(i) + "/mystate")
 		StartServer(i, "false")
 	}
 	time.Sleep(10 * time.Second)
@@ -69,14 +73,16 @@ func StartAllServerProcess() {
 }
 
 func KillServer(i int) {
+
+
 	fileServer[i-1].Process.Kill()
+	os.RemoveAll("myLogDir" + strconv.Itoa(i) + "/logfile")
+	os.RemoveAll("myStateDir" + strconv.Itoa(i) + "/mystate")
 }
 
 func KillAllServerProcess() {
 	for i := 1; i <= len(configs_fs.Peers); i++ {
 		KillServer(i)
-		//os.RemoveAll("myLogDir" + strconv.Itoa(i) + "/logfile")
-		//os.RemoveAll("myStateDir" + strconv.Itoa(i) + "/mystate")
 	}
 	time.Sleep(2 * time.Second)
 }
@@ -114,7 +120,7 @@ func reply(conn *net.TCPConn, msg *fs.Msg) bool {
 		return false
 	}
 	resp += "\r\n"
-	fmt.Println("Reply " + resp)
+	//fmt.Println("Reply " + resp)
 	conn.Write([]byte(resp))
 	if msg.Kind == 'C' {
 		conn.Write(msg.Contents)
@@ -165,9 +171,9 @@ func (server *Server) serve(clientid int, clientCommitCh chan ClientResp, conn *
 	var res ClientResp
 	var response *fs.Msg
 	for {
-
 		msg, msgerr, fatalerr := fs.GetMsg(reader)
 		msg.ClientID = clientid
+
 		if fatalerr != nil {
 			reply(conn, &fs.Msg{Kind: 'M'})
 
@@ -182,7 +188,7 @@ func (server *Server) serve(clientid int, clientCommitCh chan ClientResp, conn *
 			}
 			continue
 		}
-		fmt.Println("Here")
+
 		// if message not of read type
 		if msg.Kind == 'w' || msg.Kind == 'c' || msg.Kind == 'd' {
 			dbytes, err := MsgtoBytes(*msg)
@@ -199,10 +205,10 @@ func (server *Server) serve(clientid int, clientCommitCh chan ClientResp, conn *
 			//wait for the msg to appear on the client commit channel
 			 res = <-clientCommitCh
 
-			fmt.Println("HERE 2")
+
 			if res.Err != nil {
 				//msgContent := server.getAddress(res.Message.RedirectAddress)
-				fmt.Println("$$%% "  +res.Message.RedirectAddress)
+
 
 				reply(conn, &fs.Msg{Kind: 'R', Contents: []byte(res.Message.RedirectAddress)})
 				conn.Close()
@@ -212,122 +218,71 @@ func (server *Server) serve(clientid int, clientCommitCh chan ClientResp, conn *
 			//		fmt.Printf("Response Message %v\n", string(response.Contents))
 
 		} else if msg.Kind == 'r' {
+			//fmt.Println("READING  ###### " + string(msg.Filename))
 			response = fs.ProcessMsg(server.fileMap, &(server.gversion), msg)
 		}
 
 		if !reply(conn, response) {
-			fmt.Println("SDFgdgdsd")
-
 			conn.Close()
 			break
 		}
 	}
 }
 
-func (server *Server) ListenCommitChannel() {
+func (server *Server) ListenCommitChannel(commitval CommitInfo) {
 
-	var prevLogIndexProcessed = 0
-	for {
-		//listen on commit channel of raft node
-		fmt.Println("44444444###################")
-		var commitval CommitInfo
-		//commitval := <-server.rn.CommitChannel()
-		for {
-			tp := false
-			select {
-			case commitval = <-server.rn.CommitChannel():
-				fmt.Println("##########################################")
-				fmt.Println((int(commitval.Index)))
-				fmt.Println(string(commitval.Err))
-				tp = true
 
-			case <- time.After(5 * time.Second):
-				fmt.Println("Damn")
-			}
 
-			if(tp){
-				break
-			}
-		}
-		fmt.Println(string(commitval.Index))
-		fmt.Println(string(commitval.Err))
-		fmt.Println("####%%%%%%%%%%######################################")
 		if int(commitval.Index) == -2 {
 			//Redirect the client. Assume the server for which this server voted is the leader. So, redirect it there.
 			dmsg, _ := BytesToMsg(commitval.Data.Data)
-			server.Lock()
+			//server.Lock()
 			redirct_Addr, _ := strconv.Atoi(commitval.Err)
 			dmsg.RedirectAddress = server.getAddress(redirct_Addr)
-			fmt.Println("$$ "  +dmsg.RedirectAddress)
+			//fmt.Println("$$ "  +dmsg.RedirectAddress)
 			server.ClientChanelMap[int64(dmsg.ClientID)] <- ClientResp{dmsg, errors.New("ERR_REDIRECT")}
 
-			server.Unlock()
+			//server.Unlock()
 
 		} else {
+
 			//check if there are missing or duplicate commits
-			if commitval.Index <= int64(prevLogIndexProcessed) {
+			if commitval.Index <= int64(server.prevLogIndexProcessed) {
 				// already processed. So continue
-				continue
+				return
 			}
-			// if missing get them
-			fmt.Println("I am here !!!! with index => " + strconv.Itoa(int(commitval.Index)) +" @ ID " + strconv.Itoa(server.rn.sm.serverID))
-			dmsg, _ := BytesToMsg(commitval.Data.Data)
-			fmt.Println(string(dmsg.Contents))
-			fmt.Println(string(dmsg.Filename))
-
-
-			for i := prevLogIndexProcessed + 1; int64(i) < commitval.Index; i++ {
-				 emsg, _ := server.rn.Get(int64(i))
-
-				dmsg, _ := BytesToMsg(emsg)
-				fmt.Println("I am here 123")
-				fmt.Println(string(dmsg.Contents))
-				fmt.Println(string(dmsg.Filename))
-
-
-				response := fs.ProcessMsg(server.fileMap, &(server.gversion), &dmsg)
-				server.Lock()
-				server.ClientChanelMap[int64(dmsg.ClientID)] <- ClientResp{*response, nil}
-				server.Unlock()
-			}
-
-
+			//fmt.Println("I am here !!!! with index => " + strconv.Itoa(int(commitval.Index)) +" @ ID " + strconv.Itoa(server.rn.sm.serverID))
 			dmsg, err := BytesToMsg(commitval.Data.Data)
 			if err != nil {
 				fmt.Printf("ListenCommitChannel: Error in decoding message 3")
 			}
-			// process the message and send response to client
 			response := fs.ProcessMsg(server.fileMap, &(server.gversion), &dmsg)
-			//			fmt.Printf("Response: %v", *response)
-			//server.ClientChanMap[dmsg.ClientId]<-ClientEntry{dmsg,nil}
-			server.Lock()
+
 			server.ClientChanelMap[int64(dmsg.ClientID)] <- ClientResp{*response, nil}
-			server.Unlock()
-			prevLogIndexProcessed = int(commitval.Index)
-			fmt.Println("I am here 1212343")
+			server.prevLogIndexProcessed = int(commitval.Index)
 
 		}
-
-	}
 
 }
 
 
 func createRaftNode(i int) RaftNode{
+
 	config := Config{configs, i, "$GOPATH/src/github.com/aditya-nambiar/cs733/assignment4/", 500, 50}
 	var r = NewRaftNode(config, i)
-	r.serverMailBox, _ = cluster.New(config.Id, config.cluster)
+	r.serverMailBox, _  = cluster.New(config.Id, config.cluster)
 	return r
 }
 
-
 func serverMain(id int, restartFlag string) {
 	var server Server
+	//servs[id] = &server
 	gob.Register(MsgEntry{})
 	var clientid int64 = int64(id)
 
 	// make map for mapping client id with corresponding receiving clientcommitchannel
 	server.ClientChanelMap = make(map[int64]chan ClientResp)
+	server.ID = id
 
 
 	// fsconf stores array of the id and addresses of all file servers
@@ -344,44 +299,36 @@ func serverMain(id int, restartFlag string) {
 	server.gversion = 0
 	// find address of this server
 	address := server.getAddress(id)
-	fmt.Println("Address to connect :" +  address)
-
+	//fmt.Println("Address to connect :" +  address)
+	server.prevLogIndexProcessed = 0
 	// start the file server
+
+
+	server.rn = createRaftNode(id)
+	fmt.Println(server.rn.sm.serverID)
+	server.rn.server_back = &server
+	go server.rn.processEvents()
+
 	tcpaddr, err := net.ResolveTCPAddr("tcp", address)
 	check(err)
 
 	tcp_acceptor, err := net.ListenTCP("tcp", tcpaddr)
 	check(err)
-	/*
-	if restartFlag == "true" {
-		server.rn = RestartNode(id, raftconf)
-	} else {
-		server.rn = BringNodeUp(id, raftconf)
-	}
-	*/
-	//	fmt.Println("After")
-
-	// start listening on raft commit channel
-	go server.ListenCommitChannel()
-
-	// start raft server to process events
-	server.rn = createRaftNode(id)
-	go server.rn.processEvents()
-
 	// start accepting connection from clients
 	for {
-
+		//fmt.Println("After4")
 		tcp_conn, err := tcp_acceptor.AcceptTCP()
 		check(err)
 
-		fmt.Println("Accepted Connection")
+		//fmt.Println("Accepted Connection  " )
+
 		// assign id and commit chan to client
 		clientid = (clientid + int64(11)) % MAX_CLIENTS
-		clientCommitCh := make(chan ClientResp)
-		server.Lock()
+		clientCommitCh := make(chan ClientResp,1000)
+		//server.Lock()
 		server.ClientChanelMap[clientid] = clientCommitCh
-		server.Unlock()
-
+		//server.Unlock()
+		//fmt.Println("Accepted Connection for " + strconv.Itoa(int(clientid)))
 		// go and serve the client connection
 		go server.serve(int(clientid), clientCommitCh, tcp_conn)
 	}

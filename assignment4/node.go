@@ -5,7 +5,7 @@ import "time"
 import "github.com/cs733-iitb/log"
 import "strconv"
 import "reflect"
-import "fmt"
+//import "fmt"
 import "github.com/syndtr/goleveldb/leveldb"
 import (
 	"encoding/gob"
@@ -68,6 +68,7 @@ type RaftNode struct {
 
 	logMutex        *sync.RWMutex // Ensure correctness of log
 	electionTimeout time.Duration
+	server_back     *Server
 }
 
 func NewRaftNode(config Config, id int) RaftNode {
@@ -75,7 +76,7 @@ func NewRaftNode(config Config, id int) RaftNode {
 	node.cluster = config.cluster
 	node.LogDir = config.LogDir
 	node.raft_log, _ = log.Open(node.LogDir + "/Log" + strconv.Itoa(genRand(1, 1000)) + strconv.Itoa(config.Id))
-	node.commitCh = make(chan CommitInfo, 100)
+	node.commitCh = make(chan CommitInfo, 50000)
 	node.shutdown = make(chan bool, 5)
 	node.sm = newServer(id, len(configs.Peers)) // change to ID
 	node.mutex1 = &sync.RWMutex{}
@@ -88,21 +89,21 @@ func NewRaftNode(config Config, id int) RaftNode {
 
 // Client's message to Raft node
 func (node *RaftNode) Append(data []byte) {
-	fmt.Println("Append")
+	//fmt.Println("Append")
 	if( node.sm.state == "Leader") {
 		node.sm.clientCh <- AppendMsg{Data: data}
 	} else {
 
 		logentry := LogEntry{Data:data, Term: node.sm.term}
-		fmt.Println("Follower got append")
+		//fmt.Println("Follower got append")
 		node.sm.actionCh <- Commit{From : node.sm.serverID, Data : logentry, Index : -2}
 	}
-	fmt.Println("Done Append to " + strconv.Itoa(node.sm.serverID) + "State " + node.sm.state)
+	//.Println("Done Append to " + strconv.Itoa(node.sm.serverID) + "State " + node.sm.state)
 
 }
 
 // A channel for client to listen on. What goes into Append must come out of here at some point.
-func (node *RaftNode) CommitChannel() <-chan CommitInfo {
+func (node *RaftNode) CommitChannel()  chan CommitInfo {
 	return node.commitCh
 }
 
@@ -175,16 +176,21 @@ func (node *RaftNode) process(ev interface{}) {
 		obj := ev.(Commit)
 		var out CommitInfo = CommitInfo{}
 		if ( obj.Index == -2 ){ //Redirect
-			fmt.Println("Leader  is " + strconv.Itoa(node.sm.leaderID))
-			obj.Err = strconv.Itoa(node.sm.leaderID)
+			//fmt.Println("Leader  is " + strconv.Itoa(node.sm.leaderID))
+			if(node.sm.leaderID != -1) {
+				obj.Err = strconv.Itoa(node.sm.leaderID)
+			} else {
+				time.Sleep(100 * time.Millisecond)
+				obj.Err = strconv.Itoa(node.sm.serverID)
+			}
 			out = CommitInfo{obj.Data, int64(-2), obj.Err}
 		} else {
 			//fmt.Println("Commit by " + strconv.Itoa(node.sm.serverID) +" with data :: " + string(obj.Data.Data[:]))
 			out = CommitInfo{obj.Data, int64(obj.Index), obj.Err}
 		}
-		fmt.Println("Commiting174")
-		node.commitCh <- out
-		fmt.Println(out.Err + " " +  strconv.Itoa(int(out.Index)))
+		//fmt.Println("Commiting174 " +  strconv.Itoa(node.sm.serverID)+" " + strconv.Itoa(int(out.Index)))
+
+		node.server_back.ListenCommitChannel(out)
 	} else if t.Name() == "Send" {
 		ev1 := ev.(Send)
 		//fmt.Println(" Sending From " + strconv.Itoa(ev1.From))
@@ -257,11 +263,10 @@ func (node *RaftNode) processEvents() {
 	go node.sm.eventloop()
 	genRand(ELECTION_TIMEOUT, ELECTION_TIMEOUT*2)
 	var rnd = genRand(0, ELECTION_TIMEOUT*2)
-	fmt.Println(strconv.Itoa(rnd) + " " + strconv.Itoa(node.sm.serverID))
 	node.timer = time.NewTimer(time.Duration(rnd) * time.Millisecond)
 	go node.listening_events()
 	go node.doing_actions()
-	fmt.Println("Completed")
+	//fmt.Println("Completed")
 }
 
 // Returns leader of cluster if present, nil otherwise

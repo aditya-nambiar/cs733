@@ -66,6 +66,7 @@ func (cl *Client) send(str string) error {
 	if cl.conn == nil {
 		return errNoConn
 	}
+	//fmt.Println("COmmand sent" + str)
 	_, err := cl.conn.Write([]byte(str))
 	if err != nil {
 		err = fmt.Errorf("Write error in SendRaw: %v", err)
@@ -76,6 +77,7 @@ func (cl *Client) send(str string) error {
 }
 
 func (cl *Client) sendRcv(str string) (msg *Msg, err error) {
+
 	if cl.conn == nil {
 		return nil, errNoConn
 	}
@@ -88,12 +90,12 @@ func (cl *Client) sendRcv(str string) (msg *Msg, err error) {
 }
 func (cl *Client) rcv() (msg *Msg, err error) {
 	// we will assume no errors in server side formatting
-	fmt.Println("Waiting for msg from server")
+	//.Println("Waiting for msg from server")
 	line, err := cl.reader.ReadString('\n')
-	fmt.Println("Got A MS`1G")
-	fmt.Println(string(line))
+	//fmt.Println("Got A MS`1G")
+	//.Println(string(line))
 
-	fmt.Println(err)
+	//fmt.Println(err)
 
 	if err == nil {
 		msg, err = parseFirst(line)
@@ -166,7 +168,7 @@ func parseFirst(line string) (msg *Msg, err error) {
 	case "ERR_REDIRECT":
 		msg.Kind = 'R'
 		if len(fields) < 2 {
-			msg.Contents = []byte("localhost:9201")
+			msg.Contents = []byte("localhost:9999")
 		} else {
 			msg.Contents = []byte(fields[1])
 		}
@@ -185,19 +187,19 @@ func mkClient(addr string) *Client {
 	raddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err == nil {
 		conn, err := net.DialTCP("tcp", nil, raddr)
-		fmt.Println("Trying to connect " + addr)
+		//fmt.Println("Trying to connect " + addr)
 		if err == nil {
 			client = &Client{conn: conn, reader: bufio.NewReader(conn)}
-			fmt.Println("Add to connect" + addr)
+			//fmt.Println("Add to connect" + addr)
 		} else {
-			fmt.Printf("Error in mkclient\n")
+			//fmt.Printf("Error in mkclient\n")
 
 		}
 	} else {
-		fmt.Printf("Error in mkclient\n")
+		//fmt.Printf("Error in mkclient\n")
 
 	}
-	fmt.Println("Add to connec345t" + addr)
+	//fmt.Println("Add to connec345t" + addr)
 	if err != nil {
 		fmt.Printf("Error in mkclient\n")
 		return nil
@@ -209,7 +211,6 @@ func mkClient(addr string) *Client {
 func (cl *Client) close() {
 
 	if cl != nil && cl.conn != nil {
-		fmt.Println("DAMMNNNN")
 		cl.conn.Close()
 		cl.conn = nil
 	}
