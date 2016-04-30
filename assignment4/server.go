@@ -165,7 +165,7 @@ func check(obj interface{}) {
 	}
 }
 
-func (server *Server) serve(clientid int, clientCommitCh chan ClientResp, conn *net.TCPConn) {
+func (server *Server) handleConnection(clientid int, clientCommitCh chan ClientResp, conn *net.TCPConn) {
 
 	reader := bufio.NewReader(conn)
 	var res ClientResp
@@ -229,7 +229,7 @@ func (server *Server) serve(clientid int, clientCommitCh chan ClientResp, conn *
 	}
 }
 
-func (server *Server) ListenCommitChannel(commitval CommitInfo) {
+func (server *Server) passCommitToFS(commitval CommitInfo) {
 
 
 
@@ -305,7 +305,7 @@ func serverMain(id int, restartFlag string) {
 
 
 	server.rn = createRaftNode(id)
-	fmt.Println(server.rn.sm.serverID)
+	//fmt.Println(server.rn.sm.serverID)
 	server.rn.server_back = &server
 	go server.rn.processEvents()
 
@@ -330,7 +330,7 @@ func serverMain(id int, restartFlag string) {
 		//server.Unlock()
 		//fmt.Println("Accepted Connection for " + strconv.Itoa(int(clientid)))
 		// go and serve the client connection
-		go server.serve(int(clientid), clientCommitCh, tcp_conn)
+		go server.handleConnection(int(clientid), clientCommitCh, tcp_conn)
 	}
 
 }

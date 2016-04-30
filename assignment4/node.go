@@ -190,7 +190,7 @@ func (node *RaftNode) process(ev interface{}) {
 		}
 		//fmt.Println("Commiting174 " +  strconv.Itoa(node.sm.serverID)+" " + strconv.Itoa(int(out.Index)))
 
-		node.server_back.ListenCommitChannel(out)
+		node.server_back.passCommitToFS(out)
 	} else if t.Name() == "Send" {
 		ev1 := ev.(Send)
 		//fmt.Println(" Sending From " + strconv.Itoa(ev1.From))
